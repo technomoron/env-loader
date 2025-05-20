@@ -2,9 +2,6 @@
 
 A standalone, configurable utility for validating environment variables with built-in documentation generation. This tool helps manage configuration across various environments by providing type checking, default values, and layered configuration capabilities.
 
-[[npm version](https://img.shields.io/npm/v/@technomoron/env-loader.svg)](https://www.npmjs.com/package/@technomoron/env-loader)
-[[license](https://img.shields.io/npm/l/@technomoron/env-loader.svg)](https://github.com/technomoron/env-loader/blob/main/LICENSE)
-
 ## Key Benefits
 
 - **Dependency-Free**: Implemented without external libraries

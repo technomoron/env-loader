@@ -12,32 +12,17 @@ interface envValidatorConfig {
     searchPaths?: string[];
     fileNames?: string[];
     outputPath?: string;
-    /**
-     * If true, all matching env files will be loaded in sequence,
-     * allowing more specific files to override values from base files
-     */
     cascade?: boolean;
 }
 declare class envValidator {
     private envOptions;
-    private config;
+    private readonly config;
     constructor(options?: envValidatorConfig);
-    /**
-     * Define environment variables and their validation rules
-     */
     define(envOptions: Record<string, envOption>): this;
-    /**
-     * Generate a .env-dist file with documentation
-     */
     generateTemplate(outputPath?: string): void;
-    /**
-     * Load and validate environment variables
-     */
-    validate(env?: envVars): Record<string, any>;
+    validate(env?: envVars): Record<string, string | number | boolean | string[]>;
+    private parseValue;
     private parseBoolean;
-    /**
-     * Parse .env file content into key-value pairs
-     */
     private parseEnvFile;
     private loadEnvFile;
 }

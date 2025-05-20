@@ -20,7 +20,7 @@ export class envValidator {
         return this;
     }
     // Generate a .env-dist file with documentation
-    generateTemplate(outputPath = this.config.outputPath || './.env-dist') {
+    writeConfig(outputPath = this.config.outputPath || './.env-dist') {
         const lines = Object.entries(this.envOptions).map(([key, option]) => {
             const opt = `${option.type || 'string'}${option.required ? ' - required' : ''}`;
             const result = [`# ${option.description} [${opt}]`];
@@ -35,11 +35,18 @@ export class envValidator {
         console.log(`.env-dist file has been created at ${outputPath}`);
     }
     validate(env = this.loadEnvFile() || {}, envOptions) {
-        // Use Partial to allow incremental assignment while retaining type safety
-        const validatedEnv = {};
+        const validatedEnv = {}; // Initialize as Partial<envConfig<T>>
         const errors = [];
+        // Normalize keys for case-insensitive matching
+        const normalizedEnv = {};
+        for (const [key, value] of Object.entries(env)) {
+            normalizedEnv[normalizeKey(key)] = value;
+        }
         Object.entries(envOptions).forEach(([key, option]) => {
-            const val = env[key];
+            const normalizedKey = normalizeKey(key);
+            const targetKey = (option.name || key); // Use `name` or original key
+            // Attempt to find the value in `env` using case-insensitive matching
+            const val = normalizedEnv[normalizedKey] !== undefined ? normalizedEnv[normalizedKey] : env[key]; // Fallback to the original key
             // Handle required variables
             if (option.required && !val) {
                 errors.push(`Missing required environment variable: ${key}`);
@@ -47,8 +54,7 @@ export class envValidator {
             }
             // Handle default values
             if (!val && option.default !== undefined) {
-                // Explicitly cast option.default to the expected type for the key
-                validatedEnv[key] = option.default;
+                validatedEnv[targetKey] = option.default;
                 return;
             }
             // Handle allowed options
@@ -56,13 +62,13 @@ export class envValidator {
                 errors.push(`Invalid value for ${key}: ${val}. Must be one of: ${option.options.join(', ')}`);
                 return;
             }
-            // Parse and assign the value with explicit type casting
-            validatedEnv[key] = this.parseValue(val || '', option.type || 'string');
+            // Parse and assign the value to the correct key (custom name or default)
+            validatedEnv[targetKey] = this.parseValue(val || '', option.type || 'string');
         });
         if (errors.length > 0) {
             throw new Error(`Environment validation failed:\n${errors.join('\n')}`);
         }
-        // Return the fully typed, validated environment object
+        // Safely cast validatedEnv to envConfig<T> after validation
         return validatedEnv;
     }
     parseValue(value, type = 'string') {
@@ -109,5 +115,9 @@ export class envValidator {
             return { ...mergedEnv, ...parsedEnv };
         }, {});
     }
+}
+// Utility: Normalize keys for case-insensitive matching
+function normalizeKey(key) {
+    return key.toLowerCase().replace(/_/g, '');
 }
 export default envValidator;

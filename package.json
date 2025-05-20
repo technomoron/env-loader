@@ -1,6 +1,6 @@
 {
 	"name": "@technomoron/env-loader",
-	"version": "1.0.3",
+	"version": "1.0.4",
 	"description": ".env config loader with validation and defaults",
 	"main": "dist/cjs/env-loader.js",
 	"module": "dist/esm/env-loader.mjs",

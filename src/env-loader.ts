@@ -9,13 +9,13 @@ export interface envVars {
 	[key: string]: string | undefined;
 }
 
-// Updated envOption to make `type` optional and default to "string"
 export interface envOption {
 	description: string;
 	options?: string[];
 	default?: string | number | boolean | string[];
 	required?: boolean;
 	type?: 'string' | 'number' | 'boolean' | 'strings'; // Default is 'string'
+	name?: string; // Custom property name for the resulting config
 }
 
 export interface envValidatorConfig {
@@ -25,7 +25,7 @@ export interface envValidatorConfig {
 	cascade?: boolean;
 }
 
-// Utility Type: Infers the TypeScript type for AppConfig based on envOptions
+// Utility Type: Infers the TypeScript type for envConfig based on envOptions
 type EnvOptionType<T extends envOption> = T['type'] extends 'number'
 	? number
 	: T['type'] extends 'boolean'
@@ -34,8 +34,8 @@ type EnvOptionType<T extends envOption> = T['type'] extends 'number'
 			? string[]
 			: string; // Default to string if not explicitly set
 
-export type AppConfig<T extends Record<string, envOption>> = {
-	[K in keyof T]: T[K]['required'] extends true
+export type envConfig<T extends Record<string, envOption>> = {
+	[K in keyof T as T[K]['name'] extends string ? T[K]['name'] : K]: T[K]['required'] extends true
 		? EnvOptionType<T[K]> // Required variables are mandatory
 		: EnvOptionType<T[K]> | undefined; // Optional variables may be undefined
 };
@@ -61,7 +61,7 @@ export class envValidator {
 	}
 
 	// Generate a .env-dist file with documentation
-	generateTemplate(outputPath: string = this.config.outputPath || './.env-dist'): void {
+	writeConfig(outputPath: string = this.config.outputPath || './.env-dist'): void {
 		const lines = Object.entries(this.envOptions).map(([key, option]) => {
 			const opt = `${option.type || 'string'}${option.required ? ' - required' : ''}`;
 			const result = [`# ${option.description} [${opt}]`];
@@ -82,13 +82,22 @@ export class envValidator {
 	validate<T extends Record<string, envOption>>(
 		env: envVars = this.loadEnvFile() || {},
 		envOptions: T
-	): AppConfig<T> {
-		// Use Partial to allow incremental assignment while retaining type safety
-		const validatedEnv: Partial<AppConfig<T>> = {};
+	): envConfig<T> {
+		const validatedEnv = {} as Partial<envConfig<T>>; // Initialize as Partial<envConfig<T>>
 		const errors: string[] = [];
 
+		// Normalize keys for case-insensitive matching
+		const normalizedEnv: Record<string, string | undefined> = {};
+		for (const [key, value] of Object.entries(env)) {
+			normalizedEnv[normalizeKey(key)] = value;
+		}
+
 		Object.entries(envOptions).forEach(([key, option]) => {
-			const val = env[key];
+			const normalizedKey = normalizeKey(key);
+			const targetKey = (option.name || key) as keyof envConfig<T>; // Use `name` or original key
+
+			// Attempt to find the value in `env` using case-insensitive matching
+			const val = normalizedEnv[normalizedKey] !== undefined ? normalizedEnv[normalizedKey] : env[key]; // Fallback to the original key
 
 			// Handle required variables
 			if (option.required && !val) {
@@ -98,8 +107,7 @@ export class envValidator {
 
 			// Handle default values
 			if (!val && option.default !== undefined) {
-				// Explicitly cast option.default to the expected type for the key
-				validatedEnv[key as keyof T] = option.default as AppConfig<T>[keyof T];
+				validatedEnv[targetKey] = option.default as unknown as envConfig<T>[typeof targetKey];
 				return;
 			}
 
@@ -109,18 +117,20 @@ export class envValidator {
 				return;
 			}
 
-			// Parse and assign the value with explicit type casting
-			validatedEnv[key as keyof T] = this.parseValue(val || '', option.type || 'string') as AppConfig<T>[keyof T];
+			// Parse and assign the value to the correct key (custom name or default)
+			validatedEnv[targetKey] = this.parseValue(
+				val || '',
+				option.type || 'string'
+			) as unknown as envConfig<T>[typeof targetKey];
 		});
 
 		if (errors.length > 0) {
 			throw new Error(`Environment validation failed:\n${errors.join('\n')}`);
 		}
 
-		// Return the fully typed, validated environment object
-		return validatedEnv as AppConfig<T>;
+		// Safely cast validatedEnv to envConfig<T> after validation
+		return validatedEnv as unknown as envConfig<T>;
 	}
-
 	private parseValue(
 		value: string,
 		type: 'string' | 'number' | 'boolean' | 'strings' = 'string'
@@ -174,6 +184,11 @@ export class envValidator {
 			return { ...mergedEnv, ...parsedEnv };
 		}, {});
 	}
+}
+
+// Utility: Normalize keys for case-insensitive matching
+function normalizeKey(key: string): string {
+	return key.toLowerCase().replace(/_/g, '');
 }
 
 export default envValidator;

@@ -27,14 +27,17 @@
 		"prepublishOnly": "npm run build",
 		"lint": "eslint --ext .js,.ts,.vue ./",
 		"lintfix": "eslint --fix --ext .js,.ts,.vue ./",
-		"format": "prettier --write \"**/*.{js,jsx,ts,tsx,vue,json,css,scss,md}\"",
-		"cleanbuild": "rm -rf ./dist/ && npm run lintfix && npm run format && npm run build"
+		"format": "npm run lintfix && npm run pretty",
+		"cleanbuild": "rm -rf ./dist/ && npm run lintfix && npm run format && npm run build",
+		"pretty": "prettier --write \"**/*.{js,jsx,ts,tsx,vue,json,css,scss,md}\""
 	},
 	"devDependencies": {
 		"@types/node": "^22.15.19",
-		"@typescript-eslint/eslint-plugin": "^8.29.0",
-		"@typescript-eslint/parser": "^8.29.0",
-		"eslint": "^8.57.1",
+		"@typescript-eslint/eslint-plugin": "^8.30.1",
+		"@typescript-eslint/parser": "^8.30.1",
+		"@vue/eslint-config-prettier": "10.2.0",
+		"@vue/eslint-config-typescript": "14.5.0",
+		"eslint": "^9.25.1",
 		"eslint-config-standard": "^17.1.0",
 		"eslint-plugin-import": "^2.31.0",
 		"eslint-plugin-vue": "^10.0.0",

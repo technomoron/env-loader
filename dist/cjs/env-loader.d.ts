@@ -1,6 +1,3 @@
-/**
- * Generic environment variables interface that works across different environments
- */
 export interface envVars {
     [key: string]: string | undefined;
 }
@@ -15,6 +12,11 @@ interface envValidatorConfig {
     searchPaths?: string[];
     fileNames?: string[];
     outputPath?: string;
+    /**
+     * If true, all matching env files will be loaded in sequence,
+     * allowing more specific files to override values from base files
+     */
+    cascade?: boolean;
 }
 declare class envValidator {
     private envOptions;

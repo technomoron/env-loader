@@ -1,4 +1,4 @@
-// @technomoron/env-validator
+// @technomoron/env-loader
 // A customizable environment configuration validator that generates documentation
 // and validates environment variables
 import fs from 'fs';
@@ -10,7 +10,8 @@ class envValidator {
             searchPaths: ['./', '../', '../../'],
             fileNames: ['.env'],
             outputPath: './.env-dist',
-            ...options
+            cascade: false, // Default to backward compatible mode
+            ...options,
         };
     }
     /**
@@ -136,8 +137,8 @@ class envValidator {
             const key = match[1];
             let value = (match[2] || '').trim();
             // Remove surrounding quotes if they exist
-            if (value.length > 1 && ((value.startsWith('"') && value.endsWith('"')) ||
-                (value.startsWith("'") && value.endsWith("'")))) {
+            if (value.length > 1 &&
+                ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'")))) {
                 value = value.substring(1, value.length - 1);
             }
             env[key] = value;
@@ -149,29 +150,68 @@ class envValidator {
             const baseDir = typeof process !== 'undefined' ? process.cwd() : '.';
             const paths = [];
             // Create all possible combinations of paths and filenames
-            (this.config.searchPaths || ['./']).forEach(searchPath => {
-                (this.config.fileNames || ['.env']).forEach(fileName => {
+            (this.config.searchPaths || ['./']).forEach((searchPath) => {
+                (this.config.fileNames || ['.env']).forEach((fileName) => {
                     paths.push(path.resolve(baseDir, searchPath, fileName));
                 });
             });
-            for (const envPath of paths) {
-                if (fs.existsSync(envPath)) {
-                    // Parse the .env file manually
+            // If not in cascade mode, return on first match (original behavior)
+            if (!this.config.cascade) {
+                for (const envPath of paths) {
+                    if (fs.existsSync(envPath)) {
+                        // Parse the .env file manually
+                        const parsedEnv = this.parseEnvFile(envPath);
+                        // Set process.env variables if in a Node.js environment
+                        if (typeof process !== 'undefined') {
+                            Object.entries(parsedEnv).forEach(([key, value]) => {
+                                if (value !== undefined) {
+                                    process.env[key] = value;
+                                }
+                            });
+                            console.log(`Loaded environment from ${envPath}`);
+                            return process.env;
+                        }
+                        else {
+                            console.log(`Loaded environment from ${envPath}`);
+                            return parsedEnv;
+                        }
+                    }
+                }
+            }
+            else {
+                // Cascade mode: find all existing files and combine them
+                const existingPaths = paths.filter((p) => fs.existsSync(p));
+                if (existingPaths.length === 0) {
+                    return null;
+                }
+                // Start with an empty env object
+                const mergedEnv = {};
+                const loadedFiles = [];
+                // Process all files in order, letting later files override earlier ones
+                for (const envPath of existingPaths) {
                     const parsedEnv = this.parseEnvFile(envPath);
-                    // Set process.env variables if in a Node.js environment
-                    if (typeof process !== 'undefined') {
-                        Object.entries(parsedEnv).forEach(([key, value]) => {
-                            if (value !== undefined) {
-                                process.env[key] = value;
-                            }
-                        });
-                        console.log(`Loaded environment from ${envPath}`);
-                        return process.env;
-                    }
-                    else {
-                        console.log(`Loaded environment from ${envPath}`);
-                        return parsedEnv;
-                    }
+                    loadedFiles.push(envPath);
+                    // Merge with existing values, overriding as needed
+                    Object.entries(parsedEnv).forEach(([key, value]) => {
+                        if (value !== undefined) {
+                            mergedEnv[key] = value;
+                        }
+                    });
+                }
+                if (loadedFiles.length > 0) {
+                    console.log(`Loaded environment from ${loadedFiles.length} files: ${loadedFiles.join(', ')}`);
+                }
+                // Set process.env variables if in a Node.js environment
+                if (typeof process !== 'undefined') {
+                    Object.entries(mergedEnv).forEach(([key, value]) => {
+                        if (value !== undefined) {
+                            process.env[key] = value;
+                        }
+                    });
+                    return process.env;
+                }
+                else {
+                    return mergedEnv;
                 }
             }
         }

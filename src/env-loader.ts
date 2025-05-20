@@ -9,23 +9,39 @@ export interface envVars {
 	[key: string]: string | undefined;
 }
 
-interface envOption {
+// Updated envOption to make `type` optional and default to "string"
+export interface envOption {
 	description: string;
 	options?: string[];
-	default?: string | number;
+	default?: string | number | boolean | string[];
 	required?: boolean;
-	type?: 'string' | 'number' | 'boolean' | 'strings'; // Default 'string'
+	type?: 'string' | 'number' | 'boolean' | 'strings'; // Default is 'string'
 }
 
-interface envValidatorConfig {
+export interface envValidatorConfig {
 	searchPaths?: string[];
 	fileNames?: string[];
 	outputPath?: string;
 	cascade?: boolean;
 }
 
-class envValidator {
-	private envOptions: Record<string, envOption> = {}; // Removed readonly
+// Utility Type: Infers the TypeScript type for AppConfig based on envOptions
+type EnvOptionType<T extends envOption> = T['type'] extends 'number'
+	? number
+	: T['type'] extends 'boolean'
+		? boolean
+		: T['type'] extends 'strings'
+			? string[]
+			: string; // Default to string if not explicitly set
+
+export type AppConfig<T extends Record<string, envOption>> = {
+	[K in keyof T]: T[K]['required'] extends true
+		? EnvOptionType<T[K]> // Required variables are mandatory
+		: EnvOptionType<T[K]> | undefined; // Optional variables may be undefined
+};
+
+export class envValidator {
+	private envOptions: Record<string, envOption> = {};
 	private readonly config: envValidatorConfig;
 
 	constructor(options?: envValidatorConfig) {
@@ -63,37 +79,46 @@ class envValidator {
 		console.log(`.env-dist file has been created at ${outputPath}`);
 	}
 
-	// Validate environment variables
-	validate(env: envVars = this.loadEnvFile() || {}): Record<string, string | number | boolean | string[]> {
-		const validatedEnv: Record<string, string | number | boolean | string[]> = {};
+	validate<T extends Record<string, envOption>>(
+		env: envVars = this.loadEnvFile() || {},
+		envOptions: T
+	): AppConfig<T> {
+		// Use Partial to allow incremental assignment while retaining type safety
+		const validatedEnv: Partial<AppConfig<T>> = {};
 		const errors: string[] = [];
 
-		Object.entries(this.envOptions).forEach(([key, option]) => {
+		Object.entries(envOptions).forEach(([key, option]) => {
 			const val = env[key];
 
+			// Handle required variables
 			if (option.required && !val) {
 				errors.push(`Missing required environment variable: ${key}`);
 				return;
 			}
 
+			// Handle default values
 			if (!val && option.default !== undefined) {
-				validatedEnv[key] = option.default;
+				// Explicitly cast option.default to the expected type for the key
+				validatedEnv[key as keyof T] = option.default as AppConfig<T>[keyof T];
 				return;
 			}
 
+			// Handle allowed options
 			if (option.options && val && !option.options.includes(val)) {
 				errors.push(`Invalid value for ${key}: ${val}. Must be one of: ${option.options.join(', ')}`);
 				return;
 			}
 
-			validatedEnv[key] = this.parseValue(val || '', option.type); // Provide a default value
+			// Parse and assign the value with explicit type casting
+			validatedEnv[key as keyof T] = this.parseValue(val || '', option.type || 'string') as AppConfig<T>[keyof T];
 		});
 
 		if (errors.length > 0) {
 			throw new Error(`Environment validation failed:\n${errors.join('\n')}`);
 		}
 
-		return validatedEnv;
+		// Return the fully typed, validated environment object
+		return validatedEnv as AppConfig<T>;
 	}
 
 	private parseValue(

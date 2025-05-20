@@ -1,0 +1,16 @@
+CHANGES for `env-loader` (1.0.2 to 1.0.3):
+
+1. Defaulted `type` to "string". The `type` property in the `envOption` interface is now optional and defaults to "string". The `default` property now supports `boolean` and `string[]` types in addition to `string` and `number`.
+
+2. Added strong typing for configuration. Introduced utility types:
+   - `EnvOptionType`: Infers the TypeScript type of environment variables based on the `type` field.
+   - `AppConfig`: Generates a strongly-typed configuration object (`validatedEnv`) based on `envOptions`.
+
+3. Enhanced the `validate` method. The method now:
+   - Accepts `envOptions` as a parameter to generate a typed `AppConfig`.
+   - Uses `Partial<AppConfig<T>>` for incremental assignment of environment variables.
+   - Ensures compatibility by explicitly casting `option.default` and parsed values.
+
+4. Improved maintainability. Added inline comments and refactored the `validate` method for better readability. Increased type safety to reduce potential runtime errors.
+
+5. Maintained backward compatibility. All changes are non-breaking, preserving existing functionality while adding type safety.

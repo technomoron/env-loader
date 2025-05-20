@@ -6,11 +6,12 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.envValidator = void 0;
 const fs_1 = __importDefault(require("fs"));
 const path_1 = __importDefault(require("path"));
 class envValidator {
     constructor(options) {
-        this.envOptions = {}; // Removed readonly
+        this.envOptions = {};
         this.config = {
             searchPaths: ['./', '../', '../../'],
             fileNames: ['.env'],
@@ -39,29 +40,35 @@ class envValidator {
         fs_1.default.writeFileSync(outputPath, lines.join('\n'), 'utf8');
         console.log(`.env-dist file has been created at ${outputPath}`);
     }
-    // Validate environment variables
-    validate(env = this.loadEnvFile() || {}) {
+    validate(env = this.loadEnvFile() || {}, envOptions) {
+        // Use Partial to allow incremental assignment while retaining type safety
         const validatedEnv = {};
         const errors = [];
-        Object.entries(this.envOptions).forEach(([key, option]) => {
+        Object.entries(envOptions).forEach(([key, option]) => {
             const val = env[key];
+            // Handle required variables
             if (option.required && !val) {
                 errors.push(`Missing required environment variable: ${key}`);
                 return;
             }
+            // Handle default values
             if (!val && option.default !== undefined) {
+                // Explicitly cast option.default to the expected type for the key
                 validatedEnv[key] = option.default;
                 return;
             }
+            // Handle allowed options
             if (option.options && val && !option.options.includes(val)) {
                 errors.push(`Invalid value for ${key}: ${val}. Must be one of: ${option.options.join(', ')}`);
                 return;
             }
-            validatedEnv[key] = this.parseValue(val || '', option.type); // Provide a default value
+            // Parse and assign the value with explicit type casting
+            validatedEnv[key] = this.parseValue(val || '', option.type || 'string');
         });
         if (errors.length > 0) {
             throw new Error(`Environment validation failed:\n${errors.join('\n')}`);
         }
+        // Return the fully typed, validated environment object
         return validatedEnv;
     }
     parseValue(value, type = 'string') {
@@ -109,4 +116,5 @@ class envValidator {
         }, {});
     }
 }
+exports.envValidator = envValidator;
 exports.default = envValidator;

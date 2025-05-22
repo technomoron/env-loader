@@ -1,130 +1,178 @@
 "use strict";
 // @technomoron/env-loader
-// A customizable environment configuration validator that generates documentation
-// and validates environment variables
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.envValidator = void 0;
+exports.createSimpleConfig = createSimpleConfig;
+exports.createProxyConfig = createProxyConfig;
 const fs_1 = __importDefault(require("fs"));
 const path_1 = __importDefault(require("path"));
-class envValidator {
+// normalize keys for case-insensitive lookup
+const normalizeKey = (k) => k.toLowerCase();
+/** Simple load+validate, no proxy */
+function createSimpleConfig(envOptions, options) {
+    const loader = new EnvLoader(options);
+    const merged = loader.load(envOptions);
+    return loader.validate(merged, envOptions);
+}
+/** Load+validate then strict proxy */
+function createProxyConfig(envOptions, options) {
+    const loader = new EnvLoader(options);
+    const merged = loader.load(envOptions);
+    const validated = loader.validate(merged, envOptions);
+    return new Proxy(validated, {
+        get(target, prop, receiver) {
+            // For symbols or non-string keys, delegate to Reflect
+            if (typeof prop !== 'string') {
+                return Reflect.get(target, prop, receiver);
+            }
+            // Handle built-in methods via Reflect
+            if ([
+                'toJSON',
+                'toString',
+                'valueOf',
+                'constructor',
+                'hasOwnProperty',
+                'isPrototypeOf',
+                'propertyIsEnumerable',
+                'then',
+            ].includes(prop)) {
+                const val = Reflect.get(target, prop, receiver);
+                return typeof val === 'function' ? val.bind(target) : val;
+            }
+            // Exact-case lookup
+            if (prop in target) {
+                return target[prop];
+            }
+            // Alias by name property
+            for (const key of Object.keys(envOptions)) {
+                const opt = envOptions[key];
+                if (opt.name === prop) {
+                    return target[key];
+                }
+            }
+            // Case-insensitive match
+            const lower = prop.toLowerCase();
+            for (const key of Object.keys(target)) {
+                if (key.toLowerCase() === lower) {
+                    return target[key];
+                }
+            }
+            throw new Error(`Accessing undefined environment key "${prop}"`);
+        },
+    });
+}
+class EnvLoader {
     constructor(options) {
-        this.envOptions = {};
         this.config = {
-            searchPaths: ['./', '../', '../../'],
+            searchPaths: ['./'],
             fileNames: ['.env'],
-            outputPath: './.env-dist',
             cascade: false,
+            debug: false,
             ...options,
         };
     }
-    // Define environment variables and their validation rules
-    define(envOptions) {
-        this.envOptions = envOptions;
-        return this;
-    }
-    // Generate a .env-dist file with documentation
-    writeConfig(outputPath = this.config.outputPath || './.env-dist') {
-        const lines = Object.entries(this.envOptions).map(([key, option]) => {
-            const opt = `${option.type || 'string'}${option.required ? ' - required' : ''}`;
-            const result = [`# ${option.description} [${opt}]`];
-            if (option.options) {
-                result.push(`# Possible values: ${option.options.join(', ')}`);
+    /** Merge .env then process.env */
+    load(envOptions) {
+        const fileEntries = this.loadEnvFiles();
+        const out = {};
+        for (const key of Object.keys(envOptions)) {
+            const norm = normalizeKey(key);
+            // .env
+            const fv = Object.entries(fileEntries).find(([k]) => normalizeKey(k) === norm);
+            if (fv) {
+                out[key] = fv[1];
+                continue;
             }
-            const value = option.required ? `${key}=` : `# ${key}=${option.default || ''}`;
-            result.push(value, '');
-            return result.join('\n');
-        });
-        fs_1.default.writeFileSync(outputPath, lines.join('\n'), 'utf8');
-        console.log(`.env-dist file has been created at ${outputPath}`);
+            // process.env
+            const pv = Object.entries(process.env).find(([k]) => normalizeKey(k) === norm);
+            if (pv && pv[1] !== undefined) {
+                out[key] = pv[1];
+            }
+        }
+        if (this.config.debug)
+            console.log('Loaded env keys:', out);
+        return out;
     }
-    validate(env = this.loadEnvFile() || {}, envOptions) {
-        const validatedEnv = {}; // Initialize as Partial<envConfig<T>>
+    loadEnvFiles() {
+        const cwd = process.cwd();
+        const paths = this.config.searchPaths.flatMap((sp) => this.config.fileNames.map((fn) => path_1.default.join(cwd, sp, fn)));
+        const found = paths.filter((p) => fs_1.default.existsSync(p));
+        if (!found.length)
+            return {};
+        const toRead = this.config.cascade ? found : [found[0]];
+        return toRead.reduce((acc, file) => {
+            for (const line of fs_1.default.readFileSync(file, 'utf8').split(/\r?\n/)) {
+                const t = line.trim();
+                if (!t || t.startsWith('#'))
+                    continue;
+                const m = t.match(/^([\w.-]+)\s*=\s*(.*)$/);
+                if (m)
+                    acc[m[1]] = m[2].replace(/^['"]|['"]$/g, '').trim();
+            }
+            return acc;
+        }, {});
+    }
+    /** Validate defaults, required, types, options */
+    validate(env, envOptions) {
         const errors = [];
-        // Normalize keys for case-insensitive matching
-        const normalizedEnv = {};
-        for (const [key, value] of Object.entries(env)) {
-            normalizedEnv[normalizeKey(key)] = value;
+        const result = {};
+        for (const [key, opt] of Object.entries(envOptions)) {
+            const raw = env[key];
+            // default fallback
+            if (raw === undefined && opt.default !== undefined) {
+                result[key] = opt.default;
+                continue;
+            }
+            // required
+            if (raw === undefined) {
+                if (opt.required)
+                    errors.push(`Missing required: ${key}`);
+                continue;
+            }
+            // parse
+            try {
+                const parsed = this.parse(raw, opt.type);
+                if (opt.options && !opt.options.includes(String(parsed))) {
+                    errors.push(`Invalid ${key}: ${parsed}`);
+                }
+                else {
+                    result[key] = parsed;
+                }
+            }
+            catch (e) {
+                const msg = e instanceof Error ? e.message : String(e);
+                errors.push(`Error parsing ${key}: ${msg}`);
+            }
         }
-        Object.entries(envOptions).forEach(([key, option]) => {
-            const normalizedKey = normalizeKey(key);
-            const targetKey = (option.name || key); // Use `name` or original key
-            // Attempt to find the value in `env` using case-insensitive matching
-            const val = normalizedEnv[normalizedKey] !== undefined ? normalizedEnv[normalizedKey] : env[key]; // Fallback to the original key
-            // Handle required variables
-            if (option.required && !val) {
-                errors.push(`Missing required environment variable: ${key}`);
-                return;
-            }
-            // Handle default values
-            if (!val && option.default !== undefined) {
-                validatedEnv[targetKey] = option.default;
-                return;
-            }
-            // Handle allowed options
-            if (option.options && val && !option.options.includes(val)) {
-                errors.push(`Invalid value for ${key}: ${val}. Must be one of: ${option.options.join(', ')}`);
-                return;
-            }
-            // Parse and assign the value to the correct key (custom name or default)
-            validatedEnv[targetKey] = this.parseValue(val || '', option.type || 'string');
-        });
-        if (errors.length > 0) {
-            throw new Error(`Environment validation failed:\n${errors.join('\n')}`);
-        }
-        // Safely cast validatedEnv to envConfig<T> after validation
-        return validatedEnv;
+        if (errors.length)
+            throw new Error('Env validation failed:\n' + errors.join('\n'));
+        if (this.config.debug)
+            console.log('Validated env config:', result);
+        return result;
     }
-    parseValue(value, type = 'string') {
+    parse(value, type) {
         switch (type) {
-            case 'boolean':
-                return this.parseBoolean(value);
-            case 'number':
-                const numValue = Number(value);
-                if (isNaN(numValue))
-                    throw new Error(`Invalid number: ${value}`);
-                return numValue;
+            case 'number': {
+                const n = Number(value);
+                if (isNaN(n))
+                    throw new Error(`Not a number: ${value}`);
+                return n;
+            }
+            case 'boolean': {
+                const lc = value.toLowerCase();
+                if (['true', '1', 'yes', 'on'].includes(lc))
+                    return true;
+                if (['false', '0', 'no', 'off'].includes(lc))
+                    return false;
+                return Boolean(value);
+            }
             case 'strings':
-                return value.split(',').map((str) => str.trim());
+                return value.split(',').map((s) => s.trim());
             default:
                 return value;
         }
     }
-    parseBoolean(value) {
-        const truthy = new Set(['true', '1', 'yes', 'on']);
-        const falsy = new Set(['false', '0', 'no', 'off']);
-        return truthy.has(value.toLowerCase()) ? true : falsy.has(value.toLowerCase()) ? false : Boolean(value);
-    }
-    parseEnvFile(filePath) {
-        const content = fs_1.default.readFileSync(filePath, 'utf8');
-        return content.split('\n').reduce((env, line) => {
-            const trimmed = line.trim();
-            if (!trimmed || trimmed.startsWith('#'))
-                return env;
-            const [, key, value] = trimmed.match(/^\s*([\w.-]+)\s*=\s*(.*)?\s*$/) || [];
-            if (key)
-                env[key] = value?.replace(/^['"]|['"]$/g, '').trim();
-            return env;
-        }, {});
-    }
-    loadEnvFile() {
-        const baseDir = process.cwd();
-        const paths = (this.config.searchPaths || ['./']).flatMap((searchPath) => (this.config.fileNames || ['.env']).map((fileName) => path_1.default.join(baseDir, searchPath, fileName)));
-        const existingFiles = paths.filter(fs_1.default.existsSync);
-        if (!this.config.cascade) {
-            return existingFiles.length > 0 ? this.parseEnvFile(existingFiles[0]) : null;
-        }
-        return existingFiles.reduce((mergedEnv, filePath) => {
-            const parsedEnv = this.parseEnvFile(filePath);
-            return { ...mergedEnv, ...parsedEnv };
-        }, {});
-    }
 }
-exports.envValidator = envValidator;
-// Utility: Normalize keys for case-insensitive matching
-function normalizeKey(key) {
-    return key.toLowerCase().replace(/_/g, '');
-}
-exports.default = envValidator;
+exports.default = EnvLoader;

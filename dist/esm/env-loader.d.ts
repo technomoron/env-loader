@@ -9,6 +9,7 @@ export interface envOption {
     type?: 'string' | 'number' | 'boolean' | 'strings';
     name?: string;
 }
+export declare function defineEnvOptions<T extends Record<string, envOption>>(options: T): T;
 export interface envValidatorConfig {
     searchPaths?: string[];
     fileNames?: string[];
@@ -19,11 +20,9 @@ type EnvOptionType<T extends envOption> = T['type'] extends 'number' ? number : 
 /** Final config type: original, lowercase and alias keys */
 export type envConfig<T extends Record<string, envOption>> = {
     [K in keyof T]: EnvOptionType<T[K]>;
-} & // lowercase aliases
-{
+} & {
     [K in keyof T as Lowercase<K & string>]: EnvOptionType<T[K]>;
-} & // custom name aliases
-{
+} & {
     [K in keyof T as T[K]['name'] extends string ? T[K]['name'] : never]: EnvOptionType<T[K]>;
 };
 /** Simple load+validate, no proxy */

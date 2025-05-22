@@ -1,6 +1,9 @@
 // @technomoron/env-loader
 import fs from 'fs';
 import path from 'path';
+export function defineEnvOptions(options) {
+    return options;
+}
 // normalize keys for case-insensitive lookup
 const normalizeKey = (k) => k.toLowerCase();
 /** Simple load+validate, no proxy */

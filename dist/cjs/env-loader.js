@@ -4,10 +4,14 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.defineEnvOptions = defineEnvOptions;
 exports.createSimpleConfig = createSimpleConfig;
 exports.createProxyConfig = createProxyConfig;
 const fs_1 = __importDefault(require("fs"));
 const path_1 = __importDefault(require("path"));
+function defineEnvOptions(options) {
+    return options;
+}
 // normalize keys for case-insensitive lookup
 const normalizeKey = (k) => k.toLowerCase();
 /** Simple load+validate, no proxy */

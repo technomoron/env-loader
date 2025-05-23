@@ -1,6 +1,6 @@
 {
 	"name": "@technomoron/env-loader",
-	"version": "1.0.6",
+	"version": "1.0.7",
 	"description": ".env config loader with validation and defaults",
 	"main": "dist/cjs/env-loader.js",
 	"module": "dist/esm/env-loader.mjs",
@@ -52,5 +52,7 @@
 		"LICENSE",
 		"README.md"
 	],
-	"dependencies": {}
+	"dependencies": {
+		"zod": "^3.25.23"
+	}
 }

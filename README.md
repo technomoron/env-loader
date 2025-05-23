@@ -1,324 +1,270 @@
 # @technomoron/env-loader
 
-A standalone, configurable utility for validating environment variables with built-in documentation generation. This tool helps manage configuration across various environments by providing type checking, default values, and layered configuration capabilities.
+A robust, minimal-dependency utility for loading, validating, and parsing environment variables with `.env` file support, strong type inference, and advanced validation powered by [Zod](https://zod.dev/) or custom transforms.
 
-## Key Benefits
+## Features
 
-- **Dependency-Free**: Implemented without external libraries
-- **Self-Documenting**: Creates .env templates with detailed annotations
-- **Type Safety**: Verifies variable types (string, number, boolean, string arrays)
-- **Sensible Defaults**: Define fallback values for optional configuration
-- **Layered Configuration**: Combine multiple .env files with precedence rules
-- **Mandatory Fields**: Designate essential configuration parameters
-- **Environment Agnostic**: Compatible with Node.js and browser contexts
+- **Minimal dependencies:** Only Zod is required for advanced validation.
+- **Type-safe:** Full TypeScript type inference from your schema.
+- **Zod validation:** Native support for Zod schemas and custom transforms.
+- **Flexible parsing:** Supports `string`, `number`, `boolean`, `strings` (comma lists), enums, and custom logic.
+- **Layered config:** Optionally cascade/override with multiple `.env` files.
+- **Duplicate detection:** Detects duplicate keys (case-insensitive) within a single `.env` file and warns if `debug: true`.
+- **Strict mode:** Optional proxy that throws on unknown config keys.
+- **Configurable:** Debug logging, custom search paths and filenames, and more.
+- **Template generation:** Auto-generate a commented `.env` template from your schema.
 
 ## Installation
 
-```bash
+```
 npm install @technomoron/env-loader
-```
-
-or with Yarn:
-
-```bash
+# or
 yarn add @technomoron/env-loader
+# or
+pnpm add @technomoron/env-loader
 ```
 
-## Basic Example
+## Quick Example
 
-```typescript
-import envValidator from '@technomoron/env-loader';
+```
+import EnvLoader, { defineEnvOptions, envConfig } from '@technomoron/env-loader';
+import { z } from 'zod';
 
-// Configure your environment schema
-const env = new envValidator().define({
-	NODE_ENV: {
-		description: 'Runtime environment setting',
-		options: ['development', 'production', 'test'],
-		default: 'development',
-	},
-	PORT: {
-		description: 'Server listening port',
-		type: 'number',
-		default: 3000,
-	},
-	DATABASE_URL: {
-		description: 'Database connection string',
-		required: true,
-	},
-	FEATURE_FLAGS: {
-		description: 'Active feature toggles',
-		type: 'strings',
-		default: 'logging,metrics',
-	},
+// Define your schema using defineEnvOptions for best type inference
+const envOptions = defineEnvOptions({
+  NODE_ENV: {
+    description: 'Runtime environment',
+    options: ['development', 'production', 'test'],
+    default: 'development',
+  },
+  PORT: {
+    description: 'Server port',
+    type: 'number',
+    default: 3000,
+  },
+  DATABASE_URL: {
+    description: 'Database connection string',
+    required: true,
+  },
+  FEATURE_FLAGS: {
+    description: 'Comma-separated features',
+    type: 'strings',
+    default: ['logging', 'metrics'],
+  },
+  ENABLE_EMAIL: {
+    description: 'Enable email service',
+    type: 'boolean',
+    default: false,
+  },
+  LOG_LEVEL: {
+    description: 'Log verbosity',
+    options: ['error', 'warn', 'info', 'debug'],
+    default: 'info',
+  },
+  CUSTOM: {
+    description: 'Custom value validated by Zod',
+    zodSchema: z.string().regex(/^foo-.+/),
+    default: 'foo-bar',
+  },
 });
 
-// Create documentation template
-env.generateTemplate();
+// Type-safe config for VSCode/IDE
+const config = EnvLoader.createConfig(envOptions);
 
-// Process and validate environment configuration
-const config = env.validate();
-
-// Utilize the validated configuration
-console.log(`Server starting on port ${config.PORT} in ${config.NODE_ENV} mode`);
-console.log(`Active features: ${config.FEATURE_FLAGS.join(', ')}`);
+// Now use your config!
+console.log(`Running in ${config.NODE_ENV} mode on port ${config.PORT}`);
+console.log(`Features: ${config.FEATURE_FLAGS.join(', ')}`);
+console.log(`Email enabled? ${config.ENABLE_EMAIL}`);
+console.log(`Custom value: ${config.CUSTOM}`);
 ```
 
-## Configuration Details
+---
 
-### Variable Definition
+## API
 
-Use the `define` method to specify environment variables and their properties:
+### `defineEnvOptions(options)`
 
-```typescript
-env.define({
-	CONFIG_PARAM: {
-		description: 'Parameter description', // For documentation
-		type: 'string', // Data type (string|number|boolean|strings)
-		required: true, // Is this parameter mandatory?
-		options: ['value1', 'value2'], // Permitted values
-		default: 'default-value', // Fallback if not specified
-	},
-});
+Helper for TypeScript type inference. Pass your env schema as an object.
+
+### Environment Option Properties
+
+- `description` (string): What this variable is for.
+- `type` (`string` | `number` | `boolean` | `strings`): Parsing mode.
+- `required` (boolean): Whether it must be present.
+- `options` (array): Valid values (enum-like).
+- `default`: Fallback if not set. (Type matches `type`)
+- `transform` (function): Custom parser, `(raw: string) => any`.
+- `zodSchema` (ZodType): Full validation/transformation via [Zod](https://zod.dev/).
+
+### `EnvLoader.createConfig(envOptions, options?)`
+
+Loads, parses, and validates environment using your schema.
+
+- `envOptions`: Your schema (from `defineEnvOptions`).
+- `options`: Loader options (see below).
+
+Returns: **Typed config object** where all keys are the inferred types.
+
+### `EnvLoader.createConfigProxy(envOptions, options?)`
+
+Same as `createConfig`, but returned config **throws on unknown keys** (useful for strict/safer code).
+
+### `EnvLoader.genTemplate(schema, file)`
+
+Generate a commented `.env` template file (with descriptions and default/example values) for your schema.
+
+```
+EnvLoader.genTemplate(envOptions, '.env.example');
 ```
 
-### Definition Options
+---
 
-- **description**: Explains the variable's purpose (used in documentation)
-- **type**: Value type (`string`, `number`, `boolean`, or `strings` for comma-delimited lists)
-- **required**: Indicates if the variable must be present (`true`/`false`)
-- **options**: Array of valid values for validation
-- **default**: Fallback value when not explicitly set
+## Loader Options
 
-### Documentation Generation
+Pass as second argument to `createConfig`, `createConfigProxy`, or in the constructor:
 
-Create a template file with inline documentation:
+- `searchPaths` (string[]): Folders to search for `.env` files. Default: `['./']`
+- `fileNames` (string[]): Filenames to load. Default: `['.env']`
+- `cascade` (boolean): If true, merge all found files (last wins). Default: `false`
+- `debug` (boolean): Print debug output and duplicate key warnings. Default: `false`
+- `envFallback` (boolean): Fallback to `process.env` if not found in files. Default: `true`
 
-```typescript
-// Generate at default location (./.env-dist)
-env.generateTemplate();
+---
 
-// Or specify custom location
-env.generateTemplate('./config/.env.template');
+## Parsing & Validation
+
+### Supported Types
+
+- **string:** Default if `type` is omitted.
+- **number:** Parsed using `Number()`.
+- **boolean:** Accepts `true`, `false`, `1`, `0`, `yes`, `no`, `on`, `off` (case-insensitive).
+- **strings:** Comma-separated list → string array.
+
+### Enum/Options
+
+Use `options: [...]` to enforce one of several allowed values.
+
+### Zod Schemas
+
+Use `zodSchema` for advanced parsing/validation:
+
 ```
+import { z } from 'zod';
 
-The generated template includes helpful comments:
-
-```env
-# Runtime environment setting [string]
-# Possible values: development, production, test
-# NODE_ENV=development
-
-# Server listening port [number]
-# PORT=3000
-
-# Database connection string [string - required]
-DATABASE_URL=
-
-# Active feature toggles [strings]
-# FEATURE_FLAGS=logging,metrics
-```
-
-### Environment Validation
-
-Process and validate environment variables:
-
-```typescript
-// Validate using auto-loaded .env files
-const config = env.validate();
-
-// Or validate specific environment object
-const config = env.validate({
-	NODE_ENV: 'production',
-	PORT: '8080',
-	DATABASE_URL: 'postgresql://user:pass@localhost/db',
-});
-```
-
-### Multi-Level Configuration
-
-Enable layered configuration by loading multiple files with override capability:
-
-```typescript
-const env = new envValidator({
-	searchPaths: ['./'],
-	fileNames: ['.env', '.env.local', `.env.${process.env.NODE_ENV}`],
-	cascade: true,
-});
-```
-
-This configuration will:
-
-1. Start with `.env` as baseline configuration
-2. Apply overrides from `.env.local` if present
-3. Finally apply environment-specific settings from the current NODE_ENV
-
-This pattern supports:
-
-- Common settings in `.env`
-- Developer-specific overrides in `.env.local` (typically gitignored)
-- Environment-specific configurations in `.env.development`, `.env.production`, etc.
-
-## Advanced Options
-
-### Initialization Parameters
-
-```typescript
-const env = new envValidator({
-	// Directory paths to search for configuration files (relative to CWD)
-	searchPaths: ['./', '../', '../../'],
-
-	// Configuration filenames to locate
-	fileNames: ['.env', '.env.local', '.env.development'],
-
-	// Target path for template generation
-	outputPath: './config/.env.template',
-
-	// Enable multi-file loading with override support
-	cascade: true,
+const schema = defineEnvOptions({
+  SECRET: {
+    description: 'Must start with foo-',
+    zodSchema: z.string().startsWith('foo-'),
+    required: true,
+  },
 });
 ```
 
-### Boolean Value Processing
+### Custom Transform
 
-Boolean values are intelligently parsed from multiple formats:
-
-- **Truthy values**: `'true'`, `'1'`, `'yes'`, `'on'`
-- **Falsy values**: `'false'`, `'0'`, `'no'`, `'off'`
-
-### Array Value Handling
-
-Variables with type `'strings'` are parsed from comma-separated text:
+Use `transform: (raw) => parsed` for custom logic:
 
 ```
-CORS_ORIGINS=http://localhost:3000,https://example.com,https://api.example.com
-```
-
-This becomes the array:
-
-```javascript
-['http://localhost:3000', 'https://example.com', 'https://api.example.com'];
-```
-
-## Comprehensive Example
-
-```typescript
-import envValidator from '@technomoron/env-loader';
-
-// Initialize with configuration options
-const env = new envValidator({
-	searchPaths: ['./'],
-	fileNames: ['.env', '.env.local', `.env.${process.env.NODE_ENV || 'development'}`],
-	outputPath: './.env.template',
-	cascade: true,
+const schema = defineEnvOptions({
+  PORT: {
+    description: 'Server port',
+    transform: (v) => parseInt(v) + 1000, // e.g., offset
+    default: '3000',
+  },
 });
-
-// Define environment configuration schema
-env.define({
-	// Server settings
-	NODE_ENV: {
-		description: 'Runtime environment',
-		options: ['development', 'production', 'test'],
-		default: 'development',
-	},
-	PORT: {
-		description: 'HTTP server port',
-		type: 'number',
-		default: 3000,
-	},
-	HOST: {
-		description: 'Server binding address',
-		default: '0.0.0.0',
-	},
-
-	// Database configuration
-	DATABASE_URL: {
-		description: 'Database connection URI',
-		required: true,
-	},
-
-	// Authentication settings
-	JWT_SECRET: {
-		description: 'JWT signing key',
-		required: true,
-	},
-	JWT_EXPIRES_IN: {
-		description: 'Token validity period',
-		default: '7d',
-	},
-
-	// Feature toggles
-	FEATURES: {
-		description: 'Enabled functionality',
-		type: 'strings',
-		default: 'logging,metrics',
-	},
-
-	// Logging configuration
-	LOG_LEVEL: {
-		description: 'Logging verbosity',
-		options: ['error', 'warn', 'info', 'debug'],
-		default: 'info',
-	},
-
-	// Email settings
-	SMTP_HOST: {
-		description: 'Mail server hostname',
-	},
-	SMTP_PORT: {
-		description: 'Mail server port',
-		type: 'number',
-		default: 587,
-	},
-	SMTP_SECURE: {
-		description: 'Enable TLS for mail',
-		type: 'boolean',
-		default: true,
-	},
-});
-
-// Generate documentation template
-env.generateTemplate();
-
-// Validate environment and obtain typed configuration
-try {
-	const config = env.validate();
-	console.log('Environment validation successful');
-
-	// Launch application with validated configuration
-	startApplication(config);
-} catch (error) {
-	console.error('Environment validation failed:', error.message);
-	process.exit(1);
-}
-
-function startApplication(config) {
-	console.log(`Server starting on ${config.HOST}:${config.PORT} in ${config.NODE_ENV} mode`);
-	console.log(`Enabled features: ${config.FEATURES.join(', ')}`);
-	// Application initialization logic...
-}
 ```
 
-## Configuration File Examples
+---
 
-Here's a recommended structure for layered configuration:
+## Error Handling & Debugging
 
-**`.env`** (base settings, version controlled):
+- **Missing required keys:**
+
+    ```
+    Missing from config: DATABASE_URL,API_KEY
+    ```
+
+- **Type errors:**
+
+    ```
+    'PORT' must be a number
+    'ENABLE_EMAIL' must be a boolean
+    ```
+
+- **Zod schema failures:**
+
+    ```
+    'CUSTOM' zod says it bad: Invalid input
+    ```
+
+- **Invalid options:**
+
+    ```
+    Invalid 'LOG_LEVEL': silly
+    ```
+
+- **Duplicate keys in .env (with debug enabled):**
+    ```
+    Duplicate keys in .env: FOO (lines 1 and 3), bar (lines 5 and 8)
+    ```
+
+All validation errors are thrown as a single error message (one per line).
+
+---
+
+## Layered Configuration Example
+
+Load multiple `.env` files (e.g. for local overrides or per-environment):
+
+```
+const config = EnvLoader.createConfig(envOptions, {
+  searchPaths: ['./'],
+  fileNames: ['.env', '.env.local', `.env.${process.env.NODE_ENV}`],
+  cascade: true,
+});
+```
+
+Load order:
+
+1. `.env` (base)
+2. `.env.local` (overrides)
+3. `.env.production` (if `NODE_ENV=production`)
+
+---
+
+## Advanced: Strict Proxy Mode
+
+For extra safety, use the proxy:
+
+```
+const config = EnvLoader.createConfigProxy(envOptions);
+
+console.log(config.PORT);      // ok
+console.log(config.UNKNOWN);   // throws Error!
+```
+
+---
+
+## Example `.env` files
+
+**.env**
 
 ```
 NODE_ENV=development
 PORT=3000
-HOST=0.0.0.0
-LOG_LEVEL=info
+DATABASE_URL=postgresql://user:pass@localhost/db
+FEATURE_FLAGS=logging,metrics
+ENABLE_EMAIL=false
 ```
 
-**`.env.local`** (developer-specific overrides, not committed):
+**.env.local**
 
 ```
-DATABASE_URL=postgresql://dev:password@localhost/myapp
-JWT_SECRET=dev-environment-key
+DATABASE_URL=postgresql://dev:password@localhost/devdb
+ENABLE_EMAIL=true
 ```
 
-**`.env.production`** (production settings, created during deployment):
+**.env.production**
 
 ```
 NODE_ENV=production
@@ -326,6 +272,17 @@ PORT=8080
 LOG_LEVEL=warn
 ```
 
+---
+
+## Migration Notes
+
+- API is static/class-based (`EnvLoader.createConfig`, not instance `.define/.validate`).
+- Supports advanced parsing with Zod or custom transforms.
+- Built-in `.env` template/documentation generator: `EnvLoader.genTemplate(...)`.
+- Duplicate keys in a single `.env` file are detected and warned about in debug mode.
+
+---
+
 ## License
 
-MIT - Copyright (c) 2025 Bjørn Erik Jacobsen
+MIT - Copyright (c) 2025 Bjørn Erik Jacobsen / Technomoron

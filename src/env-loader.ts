@@ -4,11 +4,22 @@
 import fs from 'fs';
 import path from 'path';
 
+import { ZodError } from 'zod';
+
+import type { ZodTypeAny } from 'zod';
+
 interface envVars {
 	[key: string]: string | undefined;
 }
 
-// The individual options from .env
+/**
+ * Metadata for a single environment variable.
+ *
+ * @remarks
+ * - `type` enables basic parsing (string, number, boolean, comma-separated strings).
+ * - `transform` allows custom conversion from raw string to desired type.
+ * - `zodSchema` enables full Zod-based validation and transformation.
+ */
 export interface envOption {
 	description: string;
 	options?: string[];
@@ -16,31 +27,41 @@ export interface envOption {
 	required?: boolean;
 	type?: 'string' | 'number' | 'boolean' | 'strings';
 	name?: string;
+
+	/** Custom parser: convert raw env value to target type. */
+	transform?: (raw: string) => unknown;
+
+	/** Zod schema to parse and validate raw env value. */
+	zodSchema?: ZodTypeAny;
 }
 
-// Wrapper for defining .env config array (just a type cast for now)
+/**
+ * Helper to define a record of `envOption`s with full type inference.
+ */
 export function defineEnvOptions<T extends Record<string, envOption>>(options: T): T {
 	return options;
 }
 
-// Validation options
+/**
+ * Loader configuration for finding, merging, and debugging `.env` files.
+ */
 export interface EnvLoaderConfig {
-// What paths to search for .env file(s) - default ['./']
+	/** Paths to search for .env files (default: ['./']). */
 	searchPaths?: string[];
-	// What .env filenames to look for - default ['.env']
+	/** Filenames to look for in each search path (default: ['.env']). */
 	fileNames?: string[];
-	// Whether to cascade .env file loading, merging .env files if multiple paths
+	/** If true, merge multiple found .env files (default: false). */
 	cascade?: boolean;
-	// Print debug info - default false
+	/** Print debug info (default: false). */
 	debug?: boolean;
-	// Fall back to proc.env if config not set in .env file(s) - default true
+	/** Fallback to `process.env` if key missing in .env (default: true). */
 	envFallback: boolean;
 }
 
-// normalize keys for case-insensitive lookup
+// Normalize key for case-insensitive comparisons
 const normalizeKey = (k: string) => k.toLowerCase();
 
-// infer TypeScript type from envOption
+// Infer TypeScript return type for built-in parsing
 type EnvOptionType<T extends envOption> = T['type'] extends 'number'
 	? number
 	: T['type'] extends 'boolean'
@@ -49,19 +70,25 @@ type EnvOptionType<T extends envOption> = T['type'] extends 'number'
 			? string[]
 			: string;
 
-// Final config type: original, lowercase and alias keys */
-export type envConfig<T extends Record<string, envOption>> =
-	// original keys
-	{ [K in keyof T]: EnvOptionType<T[K]> } & { [K in keyof T as Lowercase<K & string>]: EnvOptionType<T[K]> } & {
-		// lowercase aliases // custom name aliases
-		[K in keyof T as T[K]['name'] extends string ? T[K]['name'] : never]: EnvOptionType<T[K]>;
-	};
+/**
+ * Output config type: maps each key to its parsed type,
+ * plus lowercase and alias variants.
+ */
+export type envConfig<T extends Record<string, envOption>> = { [K in keyof T]: EnvOptionType<T[K]> } & {
+	[K in keyof T as Lowercase<K & string>]: EnvOptionType<T[K]>;
+} & { [K in keyof T as T[K]['name'] extends string ? T[K]['name'] : never]: EnvOptionType<T[K]> };
 
-
-class EnvLoader {
+/**
+ * Main environment loader: merges .env files, falls back to process.env,
+ * applies parsing, custom transforms, and optional Zod validation.
+ */
+export default class EnvLoader {
 	private config: Required<EnvLoaderConfig>;
 
-	constructor(options?: EnvLoaderConfig) {
+	/**
+	 * @param options Partial loader configuration; defaults will be applied.
+	 */
+	constructor(options?: Partial<EnvLoaderConfig>) {
 		this.config = {
 			searchPaths: ['./'],
 			fileNames: ['.env'],
@@ -72,82 +99,105 @@ class EnvLoader {
 		};
 	}
 
-	// Create a config object based on envOption list
+	/**
+	 * Load and validate environment variables.
+	 *
+	 * @param envOptions Schema of expected environment variables.
+	 * @param options Optional loader config overrides.
+	 * @returns Fully typed config object.
+	 */
 	public static createConfig<T extends Record<string, envOption>>(
 		envOptions: T,
-		options?: EnvLoaderConfig
+		options?: Partial<EnvLoaderConfig>
 	): envConfig<T> {
 		const loader = new EnvLoader(options);
 		const merged = loader.load(envOptions);
 		return loader.validate(merged, envOptions);
 	}
 
-	// Createt a proxied config object based on envOption list, that will throw if reading
-	// unknown variables.
+	/**
+	 * Like `createConfig`, but wraps the result in a Proxy that throws on unknown keys.
+	 */
 	public static createConfigProxy<T extends Record<string, envOption>>(
 		envOptions: T,
-		options?: EnvLoaderConfig
+		options?: Partial<EnvLoaderConfig>
 	): envConfig<T> {
-		const loader = new EnvLoader(options);
-		const merged = loader.load(envOptions);
-		const validated = loader.validate(merged, envOptions);
-
+		const validated = EnvLoader.createConfig(envOptions, options);
 		return new Proxy(validated as Record<string, unknown>, {
 			get(target, prop: string | symbol, receiver) {
-			if (typeof prop !== 'string') {
-				return Reflect.get(target, prop, receiver);
-			}
-				if ([
-					'toJSON', 'toString', 'valueOf', 'constructor', 'hasOwnProperty',
-					'isPrototypeOf', 'propertyIsEnumerable', 'then'
-				].includes(prop)) {
-				const val = Reflect.get(target, prop as keyof typeof target, receiver);
-				return typeof val === 'function' ? val.bind(target) : val;
+				if (typeof prop !== 'string') return Reflect.get(target, prop, receiver);
+				if (
+					[
+						'toJSON',
+						'toString',
+						'valueOf',
+						'constructor',
+						'hasOwnProperty',
+						'isPrototypeOf',
+						'propertyIsEnumerable',
+						'then',
+					].includes(prop)
+				) {
+					const val = Reflect.get(target, prop as keyof typeof target, receiver);
+					return typeof val === 'function' ? val.bind(target) : val;
 				}
-			if (prop in target) {
-				return target[prop as keyof typeof target];
-			}
-			for (const key of Object.keys(envOptions)) {
-				const opt = envOptions[key];
-				if (opt.name === prop) {
-					return target[key as keyof typeof target];
+				if (prop in target) return target[prop as keyof typeof target];
+				// alias/name lookup
+				for (const key of Object.keys(envOptions)) {
+					if (envOptions[key].name === prop) return target[key as keyof typeof target];
 				}
-			}
-			const lower = prop.toLowerCase();
-			for (const key of Object.keys(target)) {
-				if (key.toLowerCase() === lower) {
-					return target[key as keyof typeof target];
+				// case-insensitive
+				const lower = prop.toLowerCase();
+				for (const key of Object.keys(target)) {
+					if (key.toLowerCase() === lower) return target[key as keyof typeof target];
 				}
-			}
-			throw new Error(`Accessing undefined environment key "${prop}"`);
-			}
+				throw new Error(`Undefined environment key "${prop}"`);
+			},
 		}) as envConfig<T>;
 	}
 
-	// Merge .env files and fallback to process.env, if enabled
+	// Generate a .env template file based on envOptions
+	public static genTemplate<T extends Record<string, envOption>>(config: T, file: string) {
+		const lines: string[] = [];
+		for (const [key, opt] of Object.entries(config)) {
+			const desc = opt.description ? `# ${opt.description}` : '';
+			const typeInfo = opt.type ? ` [${opt.type}]` : '';
+			const optionsInfo = opt.options ? ` Possible values: ${opt.options.join(', ')}` : '';
+			const requiredInfo = opt.required ? ' (required)' : '';
+			let defaultValue = '';
+			if (opt.default !== undefined) {
+				defaultValue = Array.isArray(opt.default) ? opt.default.join(',') : String(opt.default);
+			}
+			const example = defaultValue ? `${key}=${defaultValue}` : `${key}=`;
+			lines.push(`${desc}${typeInfo}${optionsInfo}${requiredInfo}`.trim());
+			lines.push(example);
+			lines.push('');
+		}
+		fs.writeFileSync(file, lines.join('\n'), 'utf8');
+	}
+
+	// Merge .env file entries and fallback to process.env
 	private load(envOptions: Record<string, envOption>): envVars {
 		const fileEntries = this.loadEnvFiles();
 		const out: envVars = {};
 
 		for (const key of Object.keys(envOptions)) {
 			const norm = normalizeKey(key);
-			// .env
-			const fv = Object.entries(fileEntries).find(([k]) => normalizeKey(k) === norm);
-			if (fv) {
-				out[key] = fv[1];
+			const fromFile = Object.entries(fileEntries).find(([k]) => normalizeKey(k) === norm);
+			if (fromFile) {
+				out[key] = fromFile[1];
 				continue;
 			}
 			if (this.config.envFallback) {
-				const pv = Object.entries(process.env).find(([k]) => normalizeKey(k) === norm);
-				if (pv && pv[1] !== undefined) {
-					out[key] = pv[1]!;
-				}
+				const fromProc = Object.entries(process.env).find(([k]) => normalizeKey(k) === norm);
+				if (fromProc && fromProc[1] !== undefined) out[key] = fromProc[1]!;
 			}
 		}
-		if (this.config.debug) console.log('Loaded env keys:', out);
+		if (this.config.debug) console.log('Loaded env:', out);
 		return out;
 	}
 
+	// Read all .env files according to searchPaths, fileNames, cascade
 	private loadEnvFiles(): envVars {
 		const cwd = process.cwd();
 		const paths = this.config.searchPaths.flatMap((sp) =>
@@ -155,57 +205,84 @@ class EnvLoader {
 		);
 		const found = paths.filter((p) => fs.existsSync(p));
 		if (!found.length) return {};
+		const file = found[0];
+		const acc: envVars = {};
+		const seen: Record<string, number> = {};
+		const dups: string[] = [];
 
-		const toRead = this.config.cascade ? found : [found[0]];
-		return toRead.reduce<envVars>((acc, file) => {
-			for (const line of fs.readFileSync(file, 'utf8').split(/\r?\n/)) {
-				const t = line.trim();
-				if (!t || t.startsWith('#')) continue;
-				const m = t.match(/^([\w.-]+)\s*=\s*(.*)$/);
-				if (m) acc[m[1]] = m[2].replace(/^['"]|['"]$/g, '').trim();
+		const lines = fs.readFileSync(file, 'utf8').split(/\r?\n/);
+
+		for (const [i, line] of lines.entries()) {
+			const t = line.trim();
+			if (!t || t.startsWith('#')) continue;
+			const m = t.match(/^([\w.-]+)\s*=\s*(.*)$/);
+			if (m) {
+				const key = m[1];
+				const normKey = normalizeKey(key);
+				if (seen[normKey] !== undefined) {
+					dups.push(`${key} (lines ${seen[normKey]} and ${i + 1})`);
+				}
+				seen[normKey] = i + 1;
+				acc[key] = m[2].replace(/^['"]|['"]$/g, '').trim();
 			}
-			return acc;
-		}, {});
+		}
+
+		if (dups.length && this.config.debug) {
+			console.warn('Duplicate keys in .env:', dups.join(', '));
+		}
+
+		return acc;
 	}
 
-	// Validate the loaded envoringment against the envOption config.
-	private validate<T extends Record<string, envOption>>(env: envVars, envOptions: T): envConfig<T> {
+	/**
+	 * Validate and transform each env var using default parser, custom transform, or Zod schema.
+	 */
+	private validate<T extends Record<string, envOption>>(env: envVars, opts: T): envConfig<T> {
+		const missing: string[] = [];
 		const errors: string[] = [];
 		const result: Record<string, unknown> = {};
 
-		for (const [key, opt] of Object.entries(envOptions)) {
+		for (const [key, opt] of Object.entries(opts)) {
 			const raw = env[key];
-			if (raw === undefined && opt.default !== undefined) {
-				result[key] = opt.default;
-				continue;
-			}
 			if (raw === undefined) {
-				if (opt.required) errors.push(`Missing required: ${key}`);
+				if (opt.default !== undefined) {
+					result[key] = opt.default;
+					continue;
+				}
+				if (opt.required) missing.push(key);
 				continue;
 			}
+
 			try {
-				const parsed = this.parse(raw, opt.type);
+				let parsed: unknown;
+				if (opt.transform) parsed = opt.transform(raw);
+				else if (opt.zodSchema) {
+					parsed = opt.zodSchema.parse(raw);
+				} else parsed = this.parse(raw, opt.type);
+
 				if (opt.options && !opt.options.includes(String(parsed))) {
-					errors.push(`Invalid ${key}: ${parsed}`);
+					errors.push(`Invalid '${key}': ${parsed}`);
 				} else {
 					result[key] = parsed;
 				}
-			} catch (e: unknown) {
-				const msg = e instanceof Error ? e.message : String(e);
-				errors.push(`Error parsing ${key}: ${msg}`);
+			} catch (err: unknown) {
+				if (err instanceof ZodError) {
+					const reason = err.issues.map((issue) => issue.message).join('; ');
+					errors.push(`'${key}' zod says it bad${reason ? ': ' + reason : ''}`);
+				} else {
+					const msg = err instanceof Error ? err.message : String(err);
+					errors.push(`Error parsing '${key}': ${msg}`);
+				}
 			}
 		}
 
-		if (errors.length) {
-			throw new Error('Env validation failed:\n' + errors.join('\n'));
-		}
-		if (this.config.debug) {
-			console.log('Validated env config:', result);
-		}
+		if (missing.length) errors.unshift(`Missing required: ${missing.join(', ')}`);
+		if (errors.length) throw new Error('Env validation failed:\n' + errors.join('\n'));
+		if (this.config.debug) console.log('Validated env config:', result);
 		return result as envConfig<T>;
 	}
 
-	// Parse a value
+	// Basic parsing of number, boolean, and comma-separated strings
 	private parse(value: string, type?: envOption['type']): string | number | boolean | string[] {
 		switch (type) {
 			case 'number': {
@@ -226,5 +303,3 @@ class EnvLoader {
 		}
 	}
 }
-
-export default EnvLoader;

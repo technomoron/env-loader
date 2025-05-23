@@ -1,6 +1,12 @@
-export interface envVars {
-    [key: string]: string | undefined;
-}
+import type { ZodTypeAny } from 'zod';
+/**
+ * Metadata for a single environment variable.
+ *
+ * @remarks
+ * - `type` enables basic parsing (string, number, boolean, comma-separated strings).
+ * - `transform` allows custom conversion from raw string to desired type.
+ * - `zodSchema` enables full Zod-based validation and transformation.
+ */
 export interface envOption {
     description: string;
     options?: string[];
@@ -8,16 +14,35 @@ export interface envOption {
     required?: boolean;
     type?: 'string' | 'number' | 'boolean' | 'strings';
     name?: string;
+    /** Custom parser: convert raw env value to target type. */
+    transform?: (raw: string) => unknown;
+    /** Zod schema to parse and validate raw env value. */
+    zodSchema?: ZodTypeAny;
 }
+/**
+ * Helper to define a record of `envOption`s with full type inference.
+ */
 export declare function defineEnvOptions<T extends Record<string, envOption>>(options: T): T;
-export interface envValidatorConfig {
+/**
+ * Loader configuration for finding, merging, and debugging `.env` files.
+ */
+export interface EnvLoaderConfig {
+    /** Paths to search for .env files (default: ['./']). */
     searchPaths?: string[];
+    /** Filenames to look for in each search path (default: ['.env']). */
     fileNames?: string[];
+    /** If true, merge multiple found .env files (default: false). */
     cascade?: boolean;
+    /** Print debug info (default: false). */
     debug?: boolean;
+    /** Fallback to `process.env` if key missing in .env (default: true). */
+    envFallback: boolean;
 }
 type EnvOptionType<T extends envOption> = T['type'] extends 'number' ? number : T['type'] extends 'boolean' ? boolean : T['type'] extends 'strings' ? string[] : string;
-/** Final config type: original, lowercase and alias keys */
+/**
+ * Output config type: maps each key to its parsed type,
+ * plus lowercase and alias variants.
+ */
 export type envConfig<T extends Record<string, envOption>> = {
     [K in keyof T]: EnvOptionType<T[K]>;
 } & {
@@ -25,18 +50,35 @@ export type envConfig<T extends Record<string, envOption>> = {
 } & {
     [K in keyof T as T[K]['name'] extends string ? T[K]['name'] : never]: EnvOptionType<T[K]>;
 };
-/** Simple load+validate, no proxy */
-export declare function createSimpleConfig<T extends Record<string, envOption>>(envOptions: T, options?: envValidatorConfig): envConfig<T>;
-/** Load+validate then strict proxy */
-export declare function createProxyConfig<T extends Record<string, envOption>>(envOptions: T, options?: envValidatorConfig): envConfig<T>;
-declare class EnvLoader {
+/**
+ * Main environment loader: merges .env files, falls back to process.env,
+ * applies parsing, custom transforms, and optional Zod validation.
+ */
+export default class EnvLoader {
     private config;
-    constructor(options?: envValidatorConfig);
-    /** Merge .env then process.env */
-    load(envOptions: Record<string, envOption>): envVars;
+    /**
+     * @param options Partial loader configuration; defaults will be applied.
+     */
+    constructor(options?: Partial<EnvLoaderConfig>);
+    /**
+     * Load and validate environment variables.
+     *
+     * @param envOptions Schema of expected environment variables.
+     * @param options Optional loader config overrides.
+     * @returns Fully typed config object.
+     */
+    static createConfig<T extends Record<string, envOption>>(envOptions: T, options?: Partial<EnvLoaderConfig>): envConfig<T>;
+    /**
+     * Like `createConfig`, but wraps the result in a Proxy that throws on unknown keys.
+     */
+    static createConfigProxy<T extends Record<string, envOption>>(envOptions: T, options?: Partial<EnvLoaderConfig>): envConfig<T>;
+    static genTemplate<T extends Record<string, envOption>>(config: T, file: string): void;
+    private load;
     private loadEnvFiles;
-    /** Validate defaults, required, types, options */
-    validate<T extends Record<string, envOption>>(env: envVars, envOptions: T): envConfig<T>;
+    /**
+     * Validate and transform each env var using default parser, custom transform, or Zod schema.
+     */
+    private validate;
     private parse;
 }
-export default EnvLoader;
+export {};

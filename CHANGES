@@ -1,56 +1,8 @@
 # CHANGES for `env-loader`
 
-## **1.0.4 (2025-05-20)**
+## **1.0.7 (2025-05-23)**
 
-### New Features
-1. **Support for Case-Insensitive Matching**:
-   - Added functionality to match environment variables from `.env` files in a case-insensitive manner:
-     - Variable names in `envOptions` (e.g., `APP_URL`) will match `.env` variables of any case (e.g., `app_url`, `App_Url`, `APP_URL`).
-     - Introduced `normalizeKey` utility to normalize keys for comparison (converting to lowercase and removing underscores).
+**Total rewrite**  - The initial version attempted to create a strongly typed config class object. Due to constraints
+in typescripts that made it more of a hassle than simplification, rethink project and create a strongly typed config
+object instead - see documentation.
 
-2. **Custom Key Names with `name` Attribute**:
-   - The `name` field in `envOption` allows you to specify custom property names for variables in the resulting configuration object (`envConfig`).
-     - Example: `APP_URL` can map to `appUrl` in `validatedEnv` by setting `name: 'appUrl'` in `envOptions`.
-
-3. **Enhanced Type Safety**:
-   - Updated the `envConfig` utility type to dynamically infer key names based on `name` fields in `envOptions`.
-   - Improved handling of dynamically assigned keys (`targetKey`) in `validatedEnv` using explicit casting and `unknown` type assertions to ensure TypeScript compatibility.
-
-4. **Improved Validation Method**:
-   - The `validate` method now:
-     - Assigns values incrementally to `validatedEnv` using `Partial<envConfig<T>>` for type safety.
-     - Handles default values and parsed values with strong typing using `EnvOptionType`.
-     - Ensures all keys in the resulting configuration object conform to the specified `envConfig`.
-
-### Bug Fixes
-1. **Resolved TypeScript Errors**:
-   - Fixed TypeScript issues where `validatedEnv` was not recognized as `envConfig<T>` due to dynamic key assignments. Introduced `unknown` type assertions to resolve this.
-
-2. **Backward Compatibility**:
-   - Ensured backward compatibility by preserving original behavior for variables without a `name` field or case-insensitive matches.
-
----
-
-## **1.0.3 (Previous Changes)**
-
-### New Features
-1. **Default `type` Property**:
-   - Made the `type` field in `envOption` optional, defaulting to `"string"`.
-   - Extended the `default` property to support `boolean` and `string[]` types, in addition to `string` and `number`.
-
-2. **Strong Typing for Configuration**:
-   - Introduced `EnvOptionType` to infer the TypeScript type of environment variables based on the `type` field.
-   - Added `AppConfig` type (now renamed to `envConfig`) to generate a strongly-typed configuration object (`validatedEnv`) based on `envOptions`.
-
-3. **Enhanced Validation Method**:
-   - Updated the `validate` method to:
-     - Accept `envOptions` as an argument for type inference.
-     - Use `Partial<AppConfig<T>>` (now `Partial<envConfig<T>>`) for incremental assignment.
-     - Explicitly cast `option.default` and parsed values for compatibility.
-
-4. **Improved Maintainability**:
-   - Added inline comments and refactored the `validate` method for readability.
-   - Increased type safety to reduce runtime errors.
-
-5. **Backward Compatibility**:
-   - All changes were non-breaking, preserving existing functionality while adding type safety.

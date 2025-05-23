@@ -1,12 +1,14 @@
 // @technomoron/env-loader
+// MIT - Copyright (c) 2025 Bjørn Erik Jacobsen/Technomoron
 
 import fs from 'fs';
 import path from 'path';
 
-export interface envVars {
+interface envVars {
 	[key: string]: string | undefined;
 }
 
+// The individual options from .env
 export interface envOption {
 	description: string;
 	options?: string[];
@@ -16,15 +18,23 @@ export interface envOption {
 	name?: string;
 }
 
+// Wrapper for defining .env config array (just a type cast for now)
 export function defineEnvOptions<T extends Record<string, envOption>>(options: T): T {
 	return options;
 }
 
-export interface envValidatorConfig {
+// Validation options
+export interface EnvLoaderConfig {
+// What paths to search for .env file(s) - default ['./']
 	searchPaths?: string[];
+	// What .env filenames to look for - default ['.env']
 	fileNames?: string[];
+	// Whether to cascade .env file loading, merging .env files if multiple paths
 	cascade?: boolean;
+	// Print debug info - default false
 	debug?: boolean;
+	// Fall back to proc.env if config not set in .env file(s) - default true
+	envFallback: boolean;
 }
 
 // normalize keys for case-insensitive lookup
@@ -39,7 +49,7 @@ type EnvOptionType<T extends envOption> = T['type'] extends 'number'
 			? string[]
 			: string;
 
-/** Final config type: original, lowercase and alias keys */
+// Final config type: original, lowercase and alias keys */
 export type envConfig<T extends Record<string, envOption>> =
 	// original keys
 	{ [K in keyof T]: EnvOptionType<T[K]> } & { [K in keyof T as Lowercase<K & string>]: EnvOptionType<T[K]> } & {
@@ -47,90 +57,75 @@ export type envConfig<T extends Record<string, envOption>> =
 		[K in keyof T as T[K]['name'] extends string ? T[K]['name'] : never]: EnvOptionType<T[K]>;
 	};
 
-/** Simple load+validate, no proxy */
-export function createSimpleConfig<T extends Record<string, envOption>>(
-	envOptions: T,
-	options?: envValidatorConfig
-): envConfig<T> {
-	const loader = new EnvLoader(options);
-	const merged = loader.load(envOptions);
-	return loader.validate(merged, envOptions);
-}
 
-/** Load+validate then strict proxy */
-export function createProxyConfig<T extends Record<string, envOption>>(
-	envOptions: T,
-	options?: envValidatorConfig
-): envConfig<T> {
-	const loader = new EnvLoader(options);
-	const merged = loader.load(envOptions);
-	const validated = loader.validate(merged, envOptions);
+class EnvLoader {
+	private config: Required<EnvLoaderConfig>;
 
-	return new Proxy(validated as Record<string, unknown>, {
-		get(target, prop: string | symbol, receiver) {
-			// For symbols or non-string keys, delegate to Reflect
+	constructor(options?: EnvLoaderConfig) {
+		this.config = {
+			searchPaths: ['./'],
+			fileNames: ['.env'],
+			cascade: false,
+			debug: false,
+			envFallback: true,
+			...options,
+		};
+	}
+
+	// Create a config object based on envOption list
+	public static createConfig<T extends Record<string, envOption>>(
+		envOptions: T,
+		options?: EnvLoaderConfig
+	): envConfig<T> {
+		const loader = new EnvLoader(options);
+		const merged = loader.load(envOptions);
+		return loader.validate(merged, envOptions);
+	}
+
+	// Createt a proxied config object based on envOption list, that will throw if reading
+	// unknown variables.
+	public static createConfigProxy<T extends Record<string, envOption>>(
+		envOptions: T,
+		options?: EnvLoaderConfig
+	): envConfig<T> {
+		const loader = new EnvLoader(options);
+		const merged = loader.load(envOptions);
+		const validated = loader.validate(merged, envOptions);
+
+		return new Proxy(validated as Record<string, unknown>, {
+			get(target, prop: string | symbol, receiver) {
 			if (typeof prop !== 'string') {
 				return Reflect.get(target, prop, receiver);
 			}
-
-			// Handle built-in methods via Reflect
-			if (
-				[
-					'toJSON',
-					'toString',
-					'valueOf',
-					'constructor',
-					'hasOwnProperty',
-					'isPrototypeOf',
-					'propertyIsEnumerable',
-					'then',
-				].includes(prop)
-			) {
+				if ([
+					'toJSON', 'toString', 'valueOf', 'constructor', 'hasOwnProperty',
+					'isPrototypeOf', 'propertyIsEnumerable', 'then'
+				].includes(prop)) {
 				const val = Reflect.get(target, prop as keyof typeof target, receiver);
 				return typeof val === 'function' ? val.bind(target) : val;
-			}
-
-			// Exact-case lookup
+				}
 			if (prop in target) {
 				return target[prop as keyof typeof target];
 			}
-
-			// Alias by name property
 			for (const key of Object.keys(envOptions)) {
 				const opt = envOptions[key];
 				if (opt.name === prop) {
 					return target[key as keyof typeof target];
 				}
 			}
-
-			// Case-insensitive match
 			const lower = prop.toLowerCase();
 			for (const key of Object.keys(target)) {
 				if (key.toLowerCase() === lower) {
 					return target[key as keyof typeof target];
 				}
 			}
-
 			throw new Error(`Accessing undefined environment key "${prop}"`);
-		},
-	}) as envConfig<T>;
-}
-
-class EnvLoader {
-	private config: Required<envValidatorConfig>;
-
-	constructor(options?: envValidatorConfig) {
-		this.config = {
-			searchPaths: ['./'],
-			fileNames: ['.env'],
-			cascade: false,
-			debug: false,
-			...options,
-		};
+			}
+		}) as envConfig<T>;
 	}
 
-	/** Merge .env then process.env */
-	load(envOptions: Record<string, envOption>): envVars {
+	// Merge .env files and fallback to process.env, if enabled
+	private load(envOptions: Record<string, envOption>): envVars {
 		const fileEntries = this.loadEnvFiles();
 		const out: envVars = {};
 
@@ -142,13 +137,13 @@ class EnvLoader {
 				out[key] = fv[1];
 				continue;
 			}
-			// process.env
-			const pv = Object.entries(process.env).find(([k]) => normalizeKey(k) === norm);
-			if (pv && pv[1] !== undefined) {
-				out[key] = pv[1]!;
+			if (this.config.envFallback) {
+				const pv = Object.entries(process.env).find(([k]) => normalizeKey(k) === norm);
+				if (pv && pv[1] !== undefined) {
+					out[key] = pv[1]!;
+				}
 			}
 		}
-
 		if (this.config.debug) console.log('Loaded env keys:', out);
 		return out;
 	}
@@ -173,24 +168,21 @@ class EnvLoader {
 		}, {});
 	}
 
-	/** Validate defaults, required, types, options */
-	validate<T extends Record<string, envOption>>(env: envVars, envOptions: T): envConfig<T> {
+	// Validate the loaded envoringment against the envOption config.
+	private validate<T extends Record<string, envOption>>(env: envVars, envOptions: T): envConfig<T> {
 		const errors: string[] = [];
 		const result: Record<string, unknown> = {};
 
 		for (const [key, opt] of Object.entries(envOptions)) {
 			const raw = env[key];
-			// default fallback
 			if (raw === undefined && opt.default !== undefined) {
 				result[key] = opt.default;
 				continue;
 			}
-			// required
 			if (raw === undefined) {
 				if (opt.required) errors.push(`Missing required: ${key}`);
 				continue;
 			}
-			// parse
 			try {
 				const parsed = this.parse(raw, opt.type);
 				if (opt.options && !opt.options.includes(String(parsed))) {
@@ -204,11 +196,16 @@ class EnvLoader {
 			}
 		}
 
-		if (errors.length) throw new Error('Env validation failed:\n' + errors.join('\n'));
-		if (this.config.debug) console.log('Validated env config:', result);
+		if (errors.length) {
+			throw new Error('Env validation failed:\n' + errors.join('\n'));
+		}
+		if (this.config.debug) {
+			console.log('Validated env config:', result);
+		}
 		return result as envConfig<T>;
 	}
 
+	// Parse a value
 	private parse(value: string, type?: envOption['type']): string | number | boolean | string[] {
 		switch (type) {
 			case 'number': {

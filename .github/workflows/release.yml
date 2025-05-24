@@ -46,6 +46,6 @@ jobs:
         uses: softprops/action-gh-release@v1
         with:
           files: |
-            env-loader-*.tgz
+            technomoron-env-loader-*.tgz
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

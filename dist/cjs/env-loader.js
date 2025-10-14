@@ -1,13 +1,10 @@
 "use strict";
 // @technomoron/env-loader
 // MIT - Copyright (c) 2025 Bjørn Erik Jacobsen/Technomoron
-var __importDefault = (this && this.__importDefault) || function (mod) {
-    return (mod && mod.__esModule) ? mod : { "default": mod };
-};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.defineEnvOptions = defineEnvOptions;
-const fs_1 = __importDefault(require("fs"));
-const path_1 = __importDefault(require("path"));
+const node_fs_1 = require("node:fs");
+const node_path_1 = require("node:path");
 const zod_1 = require("zod");
 /**
  * Helper to define a record of `envOption`s with full type inference.
@@ -103,7 +100,7 @@ class EnvLoader {
             lines.push(example);
             lines.push('');
         }
-        fs_1.default.writeFileSync(file, lines.join('\n'), 'utf8');
+        (0, node_fs_1.writeFileSync)(file, lines.join('\n'), 'utf8');
     }
     // Merge .env file entries and fallback to process.env
     load(envOptions) {
@@ -129,15 +126,15 @@ class EnvLoader {
     // Read all .env files according to searchPaths, fileNames, cascade
     loadEnvFiles() {
         const cwd = process.cwd();
-        const paths = this.config.searchPaths.flatMap((sp) => this.config.fileNames.map((fn) => path_1.default.join(cwd, sp, fn)));
-        const found = paths.filter((p) => fs_1.default.existsSync(p));
+        const paths = this.config.searchPaths.flatMap((sp) => this.config.fileNames.map((fn) => (0, node_path_1.join)(cwd, sp, fn)));
+        const found = paths.filter((p) => (0, node_fs_1.existsSync)(p));
         if (!found.length)
             return {};
         const file = found[0];
         const acc = {};
         const seen = {};
         const dups = [];
-        const lines = fs_1.default.readFileSync(file, 'utf8').split(/\r?\n/);
+        const lines = (0, node_fs_1.readFileSync)(file, 'utf8').split(/\r?\n/);
         for (const [i, line] of lines.entries()) {
             const t = line.trim();
             if (!t || t.startsWith('#'))

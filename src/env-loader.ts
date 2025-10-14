@@ -1,8 +1,8 @@
 // @technomoron/env-loader
 // MIT - Copyright (c) 2025 Bjørn Erik Jacobsen/Technomoron
 
-import fs from 'fs';
-import path from 'path';
+import { writeFileSync, existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 import { ZodError } from 'zod';
 
@@ -173,7 +173,7 @@ export default class EnvLoader {
 			lines.push(example);
 			lines.push('');
 		}
-		fs.writeFileSync(file, lines.join('\n'), 'utf8');
+		writeFileSync(file, lines.join('\n'), 'utf8');
 	}
 
 	// Merge .env file entries and fallback to process.env
@@ -200,17 +200,15 @@ export default class EnvLoader {
 	// Read all .env files according to searchPaths, fileNames, cascade
 	private loadEnvFiles(): envVars {
 		const cwd = process.cwd();
-		const paths = this.config.searchPaths.flatMap((sp) =>
-			this.config.fileNames.map((fn) => path.join(cwd, sp, fn))
-		);
-		const found = paths.filter((p) => fs.existsSync(p));
+		const paths = this.config.searchPaths.flatMap((sp) => this.config.fileNames.map((fn) => join(cwd, sp, fn)));
+		const found = paths.filter((p) => existsSync(p));
 		if (!found.length) return {};
 		const file = found[0];
 		const acc: envVars = {};
 		const seen: Record<string, number> = {};
 		const dups: string[] = [];
 
-		const lines = fs.readFileSync(file, 'utf8').split(/\r?\n/);
+		const lines = readFileSync(file, 'utf8').split(/\r?\n/);
 
 		for (const [i, line] of lines.entries()) {
 			const t = line.trim();

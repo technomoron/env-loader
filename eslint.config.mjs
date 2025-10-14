@@ -14,6 +14,7 @@ export default [
             '**/coverage/**',
             'node_modules',
             '*.config.{js,ts}',
+            'scripts/**/*.cjs',
             'package-lock.json',
             'yarn.lock',
             '.vscode',

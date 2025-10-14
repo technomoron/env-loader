@@ -8,6 +8,11 @@ object instead - see documentation.
 
 ## **1.0.8 (2025-10-14)**
 
+- See 1.0.9 - build/push script failed.
+
+
+## **1.0.9 (2025-10-14)**
+
 - Added Vitest test suite that exercises the source API as well as the published CJS and ESM bundles.
 - Introduced reusable test helpers for managing temporary `.env` fixtures during integration-style specs.
 - Ensured the npm clean build pipeline runs without warnings and refreshed the generated `dist/` output.

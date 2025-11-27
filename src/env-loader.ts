@@ -50,7 +50,9 @@ export interface EnvLoaderConfig {
 	searchPaths?: string[];
 	/** Filenames to look for in each search path (default: ['.env']). */
 	fileNames?: string[];
-	/** If true, merge multiple found .env files (default: false). */
+	/** If true, merge multiple found .env files in order (default: false). Alias: `cascade`. */
+	merge?: boolean;
+	/** @deprecated Use `merge`. */
 	cascade?: boolean;
 	/** Print debug info (default: false). */
 	debug?: boolean;
@@ -83,19 +85,27 @@ export type envConfig<T extends Record<string, envOption>> = { [K in keyof T]: E
  * applies parsing, custom transforms, and optional Zod validation.
  */
 export default class EnvLoader {
-	private config: Required<EnvLoaderConfig>;
+	protected config: {
+		searchPaths: string[];
+		fileNames: string[];
+		merge: boolean;
+		debug: boolean;
+		envFallback: boolean;
+		cascade?: boolean;
+	};
 
 	/**
 	 * @param options Partial loader configuration; defaults will be applied.
 	 */
 	constructor(options?: Partial<EnvLoaderConfig>) {
+		const merge = options?.merge ?? options?.cascade ?? false;
 		this.config = {
-			searchPaths: ['./'],
-			fileNames: ['.env'],
-			cascade: false,
-			debug: false,
-			envFallback: true,
-			...options,
+			searchPaths: options?.searchPaths ?? ['./'],
+			fileNames: options?.fileNames ?? ['.env'],
+			merge,
+			debug: options?.debug ?? false,
+			envFallback: options?.envFallback ?? true,
+			cascade: options?.cascade,
 		};
 	}
 
@@ -110,7 +120,7 @@ export default class EnvLoader {
 		envOptions: T,
 		options?: Partial<EnvLoaderConfig>
 	): envConfig<T> {
-		const loader = new EnvLoader(options);
+		const loader = new this(options);
 		const merged = loader.load(envOptions);
 		return loader.validate(merged, envOptions);
 	}
@@ -122,7 +132,7 @@ export default class EnvLoader {
 		envOptions: T,
 		options?: Partial<EnvLoaderConfig>
 	): envConfig<T> {
-		const validated = EnvLoader.createConfig(envOptions, options);
+		const validated = this.createConfig(envOptions, options);
 		return new Proxy(validated as Record<string, unknown>, {
 			get(target, prop: string | symbol, receiver) {
 				if (typeof prop !== 'string') return Reflect.get(target, prop, receiver);
@@ -177,7 +187,7 @@ export default class EnvLoader {
 	}
 
 	// Merge .env file entries and fallback to process.env
-	private load(envOptions: Record<string, envOption>): envVars {
+	protected load(envOptions: Record<string, envOption>): envVars {
 		const fileEntries = this.loadEnvFiles();
 		const out: envVars = {};
 
@@ -197,36 +207,52 @@ export default class EnvLoader {
 		return out;
 	}
 
-	// Read all .env files according to searchPaths, fileNames, cascade
-	private loadEnvFiles(): envVars {
+	// Read all .env files according to searchPaths, fileNames, merge
+	protected loadEnvFiles(): envVars {
 		const cwd = process.cwd();
-		const paths = this.config.searchPaths.flatMap((sp) => this.config.fileNames.map((fn) => join(cwd, sp, fn)));
-		const found = paths.filter((p) => existsSync(p));
-		if (!found.length) return {};
-		const file = found[0];
+		const searchList = this.config.searchPaths.map((sp) => join(cwd, sp));
+		const filesInOrder: string[] = [];
+
+		for (const base of searchList) {
+			for (const name of this.config.fileNames) {
+				const candidate = join(base, name);
+				if (existsSync(candidate)) {
+					filesInOrder.push(candidate);
+					if (!this.config.merge) {
+						// stop at first match if not merging
+						break;
+					}
+				}
+			}
+			if (filesInOrder.length && !this.config.merge) break;
+		}
+
+		if (!filesInOrder.length) return {};
+
 		const acc: envVars = {};
 		const seen: Record<string, number> = {};
 		const dups: string[] = [];
 
-		const lines = readFileSync(file, 'utf8').split(/\r?\n/);
-
-		for (const [i, line] of lines.entries()) {
-			const t = line.trim();
-			if (!t || t.startsWith('#')) continue;
-			const m = t.match(/^([\w.-]+)\s*=\s*(.*)$/);
-			if (m) {
-				const key = m[1];
-				const normKey = normalizeKey(key);
-				if (seen[normKey] !== undefined) {
-					dups.push(`${key} (lines ${seen[normKey]} and ${i + 1})`);
+		for (const file of filesInOrder) {
+			const lines = readFileSync(file, 'utf8').split(/\r?\n/);
+			for (const [i, line] of lines.entries()) {
+				const t = line.trim();
+				if (!t || t.startsWith('#')) continue;
+				const m = t.match(/^([\w.-]+)\s*=\s*(.*)$/);
+				if (m) {
+					const key = m[1];
+					const normKey = normalizeKey(key);
+					if (seen[normKey] !== undefined && this.config.debug) {
+						dups.push(`${key} (lines ${seen[normKey]} and ${i + 1} in ${file})`);
+					}
+					seen[normKey] = i + 1;
+					acc[key] = m[2].replace(/^['"]|['"]$/g, '').trim();
 				}
-				seen[normKey] = i + 1;
-				acc[key] = m[2].replace(/^['"]|['"]$/g, '').trim();
 			}
 		}
 
 		if (dups.length && this.config.debug) {
-			console.warn('Duplicate keys in .env:', dups.join(', '));
+			console.warn('Duplicate keys in .env files:', dups.join(', '));
 		}
 
 		return acc;
@@ -235,7 +261,7 @@ export default class EnvLoader {
 	/**
 	 * Validate and transform each env var using default parser, custom transform, or Zod schema.
 	 */
-	private validate<T extends Record<string, envOption>>(env: envVars, opts: T): envConfig<T> {
+	protected validate<T extends Record<string, envOption>>(env: envVars, opts: T): envConfig<T> {
 		const missing: string[] = [];
 		const errors: string[] = [];
 		const result: Record<string, unknown> = {};
@@ -281,7 +307,7 @@ export default class EnvLoader {
 	}
 
 	// Basic parsing of number, boolean, and comma-separated strings
-	private parse(value: string, type?: envOption['type']): string | number | boolean | string[] {
+	protected parse(value: string, type?: envOption['type']): string | number | boolean | string[] {
 		switch (type) {
 			case 'number': {
 				const n = Number(value);

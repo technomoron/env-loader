@@ -23,13 +23,14 @@ class EnvLoader {
      * @param options Partial loader configuration; defaults will be applied.
      */
     constructor(options) {
+        const merge = options?.merge ?? options?.cascade ?? false;
         this.config = {
-            searchPaths: ['./'],
-            fileNames: ['.env'],
-            cascade: false,
-            debug: false,
-            envFallback: true,
-            ...options,
+            searchPaths: options?.searchPaths ?? ['./'],
+            fileNames: options?.fileNames ?? ['.env'],
+            merge,
+            debug: options?.debug ?? false,
+            envFallback: options?.envFallback ?? true,
+            cascade: options?.cascade,
         };
     }
     /**
@@ -40,7 +41,7 @@ class EnvLoader {
      * @returns Fully typed config object.
      */
     static createConfig(envOptions, options) {
-        const loader = new EnvLoader(options);
+        const loader = new this(options);
         const merged = loader.load(envOptions);
         return loader.validate(merged, envOptions);
     }
@@ -48,7 +49,7 @@ class EnvLoader {
      * Like `createConfig`, but wraps the result in a Proxy that throws on unknown keys.
      */
     static createConfigProxy(envOptions, options) {
-        const validated = EnvLoader.createConfig(envOptions, options);
+        const validated = this.createConfig(envOptions, options);
         return new Proxy(validated, {
             get(target, prop, receiver) {
                 if (typeof prop !== 'string')
@@ -123,35 +124,50 @@ class EnvLoader {
             console.log('Loaded env:', out);
         return out;
     }
-    // Read all .env files according to searchPaths, fileNames, cascade
+    // Read all .env files according to searchPaths, fileNames, merge
     loadEnvFiles() {
         const cwd = process.cwd();
-        const paths = this.config.searchPaths.flatMap((sp) => this.config.fileNames.map((fn) => (0, node_path_1.join)(cwd, sp, fn)));
-        const found = paths.filter((p) => (0, node_fs_1.existsSync)(p));
-        if (!found.length)
+        const searchList = this.config.searchPaths.map((sp) => (0, node_path_1.join)(cwd, sp));
+        const filesInOrder = [];
+        for (const base of searchList) {
+            for (const name of this.config.fileNames) {
+                const candidate = (0, node_path_1.join)(base, name);
+                if ((0, node_fs_1.existsSync)(candidate)) {
+                    filesInOrder.push(candidate);
+                    if (!this.config.merge) {
+                        // stop at first match if not merging
+                        break;
+                    }
+                }
+            }
+            if (filesInOrder.length && !this.config.merge)
+                break;
+        }
+        if (!filesInOrder.length)
             return {};
-        const file = found[0];
         const acc = {};
         const seen = {};
         const dups = [];
-        const lines = (0, node_fs_1.readFileSync)(file, 'utf8').split(/\r?\n/);
-        for (const [i, line] of lines.entries()) {
-            const t = line.trim();
-            if (!t || t.startsWith('#'))
-                continue;
-            const m = t.match(/^([\w.-]+)\s*=\s*(.*)$/);
-            if (m) {
-                const key = m[1];
-                const normKey = normalizeKey(key);
-                if (seen[normKey] !== undefined) {
-                    dups.push(`${key} (lines ${seen[normKey]} and ${i + 1})`);
+        for (const file of filesInOrder) {
+            const lines = (0, node_fs_1.readFileSync)(file, 'utf8').split(/\r?\n/);
+            for (const [i, line] of lines.entries()) {
+                const t = line.trim();
+                if (!t || t.startsWith('#'))
+                    continue;
+                const m = t.match(/^([\w.-]+)\s*=\s*(.*)$/);
+                if (m) {
+                    const key = m[1];
+                    const normKey = normalizeKey(key);
+                    if (seen[normKey] !== undefined && this.config.debug) {
+                        dups.push(`${key} (lines ${seen[normKey]} and ${i + 1} in ${file})`);
+                    }
+                    seen[normKey] = i + 1;
+                    acc[key] = m[2].replace(/^['"]|['"]$/g, '').trim();
                 }
-                seen[normKey] = i + 1;
-                acc[key] = m[2].replace(/^['"]|['"]$/g, '').trim();
             }
         }
         if (dups.length && this.config.debug) {
-            console.warn('Duplicate keys in .env:', dups.join(', '));
+            console.warn('Duplicate keys in .env files:', dups.join(', '));
         }
         return acc;
     }

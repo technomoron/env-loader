@@ -1,0 +1,6 @@
+- Add support for @INCLUDE=file1,file2,file3 directive, instead of hard
+  coding merge in loader call. Need to consider security here, so a
+  chroot or root running app does not read files from hell and expose
+  them through the app. No info leak.
+- Add support for @MKDEFAULT=filename to write the default .env config
+  to the current dir with the given name, instead of code writing it.

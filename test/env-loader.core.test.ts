@@ -194,4 +194,32 @@ describe('EnvLoader core behavior', () => {
 			fixture.cleanup();
 		}
 	});
+
+	it('allows subclassing to override loader internals', () => {
+		class CustomLoader extends EnvLoader {
+			protected override loadEnvFiles() {
+				const base = super.loadEnvFiles();
+				return { ...base, INJECTED: 'from-subclass' };
+			}
+		}
+
+		const fixture = createEnvFixture('BASE=value');
+
+		try {
+			const envOptions = defineEnvOptions({
+				BASE: { required: true },
+				INJECTED: { required: true },
+			});
+
+			const config = CustomLoader.createConfig(envOptions, {
+				searchPaths: [fixture.relativePath],
+				envFallback: false,
+			});
+
+			expect(config.BASE).toBe('value');
+			expect(config.INJECTED).toBe('from-subclass');
+		} finally {
+			fixture.cleanup();
+		}
+	});
 });

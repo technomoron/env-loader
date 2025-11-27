@@ -1,4 +1,7 @@
 import type { ZodTypeAny } from 'zod';
+interface envVars {
+    [key: string]: string | undefined;
+}
 /**
  * Metadata for a single environment variable.
  *
@@ -31,7 +34,9 @@ export interface EnvLoaderConfig {
     searchPaths?: string[];
     /** Filenames to look for in each search path (default: ['.env']). */
     fileNames?: string[];
-    /** If true, merge multiple found .env files (default: false). */
+    /** If true, merge multiple found .env files in order (default: false). Alias: `cascade`. */
+    merge?: boolean;
+    /** @deprecated Use `merge`. */
     cascade?: boolean;
     /** Print debug info (default: false). */
     debug?: boolean;
@@ -55,7 +60,14 @@ export type envConfig<T extends Record<string, envOption>> = {
  * applies parsing, custom transforms, and optional Zod validation.
  */
 export default class EnvLoader {
-    private config;
+    protected config: {
+        searchPaths: string[];
+        fileNames: string[];
+        merge: boolean;
+        debug: boolean;
+        envFallback: boolean;
+        cascade?: boolean;
+    };
     /**
      * @param options Partial loader configuration; defaults will be applied.
      */
@@ -73,12 +85,12 @@ export default class EnvLoader {
      */
     static createConfigProxy<T extends Record<string, envOption>>(envOptions: T, options?: Partial<EnvLoaderConfig>): envConfig<T>;
     static genTemplate<T extends Record<string, envOption>>(config: T, file: string): void;
-    private load;
-    private loadEnvFiles;
+    protected load(envOptions: Record<string, envOption>): envVars;
+    protected loadEnvFiles(): envVars;
     /**
      * Validate and transform each env var using default parser, custom transform, or Zod schema.
      */
-    private validate;
-    private parse;
+    protected validate<T extends Record<string, envOption>>(env: envVars, opts: T): envConfig<T>;
+    protected parse(value: string, type?: envOption['type']): string | number | boolean | string[];
 }
 export {};

@@ -1,4 +1,6 @@
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { describe, expect, it } from 'vitest';
@@ -38,6 +40,37 @@ describe('EnvLoader distribution', () => {
 		}
 	});
 
+	it('merges multiple .env files when distributed as ESM', async () => {
+		const distUrl = new URL('../dist/esm/index.js', import.meta.url);
+		const { EnvLoader, defineEnvOptions } = await import(distUrl.href);
+
+		const fixture = createEnvFixture('BASE=one\nOVERRIDE=base');
+
+		try {
+			const overridePath = join(fixture.dir, '.env.override');
+			writeFileSync(overridePath, ['OVERRIDE=override', 'EXTRA=added'].join('\n'), 'utf8');
+
+			const envOptions = defineEnvOptions({
+				BASE: { required: true },
+				OVERRIDE: { required: true },
+				EXTRA: { required: true },
+			});
+
+			const config = EnvLoader.createConfig(envOptions, {
+				searchPaths: [fixture.relativePath],
+				fileNames: ['.env', '.env.override'],
+				merge: true,
+				envFallback: false,
+			});
+
+			expect(config.BASE).toBe('one');
+			expect(config.OVERRIDE).toBe('override');
+			expect(config.EXTRA).toBe('added');
+		} finally {
+			fixture.cleanup();
+		}
+	});
+
 	it('loads configuration when consumed as a CommonJS module', () => {
 		const require = createRequire(import.meta.url);
 		const distPath = fileURLToPath(new URL('../dist/cjs/index.js', import.meta.url));
@@ -61,6 +94,31 @@ describe('EnvLoader distribution', () => {
 			expect(configProxy.aliasKey).toBe('value');
 			expect(configProxy.enabled).toBe(false);
 			expect(() => (configProxy as Record<string, unknown>).missing).toThrowError(/Undefined environment key/);
+		} finally {
+			fixture.cleanup();
+		}
+	});
+
+	it('writes generated examples to a provided filename in CJS builds', () => {
+		const require = createRequire(import.meta.url);
+		const distPath = fileURLToPath(new URL('../dist/cjs/index.js', import.meta.url));
+		const { EnvLoader, defineEnvOptions } = require(distPath);
+
+		const fixture = createEnvFixture();
+		const templatePath = join(fixture.dir, 'custom.env.example');
+
+		try {
+			const envOptions = defineEnvOptions({
+				API_KEY: { description: 'External API key', required: true },
+				PORT: { description: 'Port number', type: 'number', default: 3000 },
+			});
+
+			EnvLoader.genTemplate(envOptions, templatePath);
+
+			expect(existsSync(templatePath)).toBe(true);
+			const contents = readFileSync(templatePath, 'utf8');
+			expect(contents).toContain('API_KEY=');
+			expect(contents).toContain('PORT=3000');
 		} finally {
 			fixture.cleanup();
 		}

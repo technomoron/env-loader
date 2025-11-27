@@ -8,7 +8,7 @@ A robust, minimal-dependency utility for loading, validating, and parsing enviro
 - **Type-safe:** Full TypeScript type inference from your schema.
 - **Zod validation:** Native support for Zod schemas and custom transforms.
 - **Flexible parsing:** Supports `string`, `number`, `boolean`, `strings` (comma lists), enums, and custom logic.
-- **Layered config:** Optionally cascade/override with multiple `.env` files.
+- **Layered config:** Optionally merge/override with multiple `.env` files.
 - **Duplicate detection:** Detects duplicate keys (case-insensitive) within a single `.env` file and warns if `debug: true`.
 - **Strict mode:** Optional proxy that throws on unknown config keys.
 - **Configurable:** Debug logging, custom search paths and filenames, and more.
@@ -119,13 +119,39 @@ EnvLoader.genTemplate(envOptions, '.env.example');
 
 ---
 
+### Subclassing (advanced)
+
+`EnvLoader` can be subclassed if you want to override internals like file discovery. The static factories now instantiate the subclass, and helper methods are `protected`:
+
+```
+class BaseEnv extends EnvLoader {
+  static schema = defineEnvOptions({ PORT: { type: 'number', required: true } });
+}
+
+class AppEnv extends BaseEnv {
+  static schema = defineEnvOptions({
+    ...BaseEnv.schema,
+    HOST: { required: true },
+  });
+
+  protected override loadEnvFiles() {
+    const base = super.loadEnvFiles();
+    return { ...base, HOST: base.HOST ?? '127.0.0.1' };
+  }
+}
+
+const config = AppEnv.createConfig(AppEnv.schema, { merge: true });
+```
+
+---
+
 ## Loader Options
 
 Pass as second argument to `createConfig`, `createConfigProxy`, or in the constructor:
 
 - `searchPaths` (string[]): Folders to search for `.env` files. Default: `['./']`
 - `fileNames` (string[]): Filenames to load. Default: `['.env']`
-- `cascade` (boolean): If true, merge all found files (last wins). Default: `false`
+- `merge` (boolean): If true, merge all found files (last wins). Default: `false` (alias: `cascade`)
 - `debug` (boolean): Print debug output and duplicate key warnings. Default: `false`
 - `envFallback` (boolean): Fallback to `process.env` if not found in files. Default: `true`
 
@@ -220,7 +246,7 @@ Load multiple `.env` files (e.g. for local overrides or per-environment):
 const config = EnvLoader.createConfig(envOptions, {
   searchPaths: ['./'],
   fileNames: ['.env', '.env.local', `.env.${process.env.NODE_ENV}`],
-  cascade: true,
+  merge: true,
 });
 ```
 

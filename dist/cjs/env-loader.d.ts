@@ -17,6 +17,8 @@ export interface envOption {
     required?: boolean;
     type?: 'string' | 'number' | 'boolean' | 'strings';
     name?: string;
+    /** Optional grouping label for template generation. */
+    group?: string;
     /** Custom parser: convert raw env value to target type. */
     transform?: (raw: string) => unknown;
     /** Zod schema to parse and validate raw env value. */
@@ -25,7 +27,10 @@ export interface envOption {
 /**
  * Helper to define a record of `envOption`s with full type inference.
  */
-export declare function defineEnvOptions<T extends Record<string, envOption>>(options: T): T;
+export interface EnvOptionsBlockMeta {
+    group?: string;
+}
+export declare function defineEnvOptions<T extends Record<string, envOption>>(options: T, meta?: EnvOptionsBlockMeta): T;
 /**
  * Loader configuration for finding, merging, and debugging `.env` files.
  */
@@ -85,6 +90,7 @@ export default class EnvLoader {
      */
     static createConfigProxy<T extends Record<string, envOption>>(envOptions: T, options?: Partial<EnvLoaderConfig>): envConfig<T>;
     static genTemplate<T extends Record<string, envOption>>(config: T, file: string): void;
+    static genTemplateFromBlocks(blocks: Array<Record<string, envOption>>, file: string): void;
     protected load(envOptions: Record<string, envOption>): envVars;
     protected loadEnvFiles(): envVars;
     /**

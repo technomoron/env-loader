@@ -1,6 +1,15 @@
 CHANGES
 =======
 
+1.1.0 (2025-12-05)
+------------------
+
+- Added optional grouping metadata for template generation: `envOption.group` and block-level `defineEnvOptions(..., { group })`.
+- `genTemplate` now emits section headers when groups are present; behavior is unchanged when no groups are set.
+- Kept configs flat and backward compatible; no changes to validation or typing flow beyond the new optional metadata.
+- Exported the block-level meta type for consumers (`EnvOptionsBlockMeta`).
+- Bumped package version to 1.1.0.
+
 1.0.10 (2025-11-27)
 -------------------
 

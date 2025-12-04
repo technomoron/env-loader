@@ -6,10 +6,13 @@ exports.defineEnvOptions = defineEnvOptions;
 const node_fs_1 = require("node:fs");
 const node_path_1 = require("node:path");
 const zod_1 = require("zod");
-/**
- * Helper to define a record of `envOption`s with full type inference.
- */
-function defineEnvOptions(options) {
+function defineEnvOptions(options, meta) {
+    if (meta?.group) {
+        for (const key of Object.keys(options)) {
+            if (!options[key].group)
+                options[key].group = meta.group;
+        }
+    }
     return options;
 }
 // Normalize key for case-insensitive comparisons
@@ -86,20 +89,34 @@ class EnvLoader {
     }
     // Generate a .env template file based on envOptions
     static genTemplate(config, file) {
+        return this.genTemplateFromBlocks([config], file);
+    }
+    // Generate a .env template file based on one or more envOption blocks
+    static genTemplateFromBlocks(blocks, file) {
         const lines = [];
-        for (const [key, opt] of Object.entries(config)) {
-            const desc = opt.description ? `# ${opt.description}` : '';
-            const typeInfo = opt.type ? ` [${opt.type}]` : '';
-            const optionsInfo = opt.options ? ` Possible values: ${opt.options.join(', ')}` : '';
-            const requiredInfo = opt.required ? ' (required)' : '';
-            let defaultValue = '';
-            if (opt.default !== undefined) {
-                defaultValue = Array.isArray(opt.default) ? opt.default.join(',') : String(opt.default);
+        let currentGroup;
+        for (const block of blocks) {
+            for (const [key, opt] of Object.entries(block)) {
+                const group = opt.group;
+                if (group && group !== currentGroup) {
+                    if (lines.length && lines[lines.length - 1] !== '')
+                        lines.push('');
+                    lines.push(`# ${group}`);
+                    currentGroup = group;
+                }
+                const desc = opt.description ? `# ${opt.description}` : '';
+                const typeInfo = opt.type ? ` [${opt.type}]` : '';
+                const optionsInfo = opt.options ? ` Possible values: ${opt.options.join(', ')}` : '';
+                const requiredInfo = opt.required ? ' (required)' : '';
+                let defaultValue = '';
+                if (opt.default !== undefined) {
+                    defaultValue = Array.isArray(opt.default) ? opt.default.join(',') : String(opt.default);
+                }
+                const example = defaultValue ? `${key}=${defaultValue}` : `${key}=`;
+                lines.push(`${desc}${typeInfo}${optionsInfo}${requiredInfo}`.trim());
+                lines.push(example);
+                lines.push('');
             }
-            const example = defaultValue ? `${key}=${defaultValue}` : `${key}=`;
-            lines.push(`${desc}${typeInfo}${optionsInfo}${requiredInfo}`.trim());
-            lines.push(example);
-            lines.push('');
         }
         (0, node_fs_1.writeFileSync)(file, lines.join('\n'), 'utf8');
     }

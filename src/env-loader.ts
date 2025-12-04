@@ -27,6 +27,8 @@ export interface envOption {
 	required?: boolean;
 	type?: 'string' | 'number' | 'boolean' | 'strings';
 	name?: string;
+	/** Optional grouping label for template generation. */
+	group?: string;
 
 	/** Custom parser: convert raw env value to target type. */
 	transform?: (raw: string) => unknown;
@@ -38,7 +40,16 @@ export interface envOption {
 /**
  * Helper to define a record of `envOption`s with full type inference.
  */
-export function defineEnvOptions<T extends Record<string, envOption>>(options: T): T {
+export interface EnvOptionsBlockMeta {
+	group?: string;
+}
+
+export function defineEnvOptions<T extends Record<string, envOption>>(options: T, meta?: EnvOptionsBlockMeta): T {
+	if (meta?.group) {
+		for (const key of Object.keys(options)) {
+			if (!options[key].group) options[key].group = meta.group;
+		}
+	}
 	return options;
 }
 
@@ -168,21 +179,38 @@ export default class EnvLoader {
 
 	// Generate a .env template file based on envOptions
 	public static genTemplate<T extends Record<string, envOption>>(config: T, file: string) {
+		return this.genTemplateFromBlocks([config], file);
+	}
+
+	// Generate a .env template file based on one or more envOption blocks
+	public static genTemplateFromBlocks(blocks: Array<Record<string, envOption>>, file: string) {
 		const lines: string[] = [];
-		for (const [key, opt] of Object.entries(config)) {
-			const desc = opt.description ? `# ${opt.description}` : '';
-			const typeInfo = opt.type ? ` [${opt.type}]` : '';
-			const optionsInfo = opt.options ? ` Possible values: ${opt.options.join(', ')}` : '';
-			const requiredInfo = opt.required ? ' (required)' : '';
-			let defaultValue = '';
-			if (opt.default !== undefined) {
-				defaultValue = Array.isArray(opt.default) ? opt.default.join(',') : String(opt.default);
+		let currentGroup: string | undefined;
+
+		for (const block of blocks) {
+			for (const [key, opt] of Object.entries(block)) {
+				const group = opt.group;
+				if (group && group !== currentGroup) {
+					if (lines.length && lines[lines.length - 1] !== '') lines.push('');
+					lines.push(`# ${group}`);
+					currentGroup = group;
+				}
+
+				const desc = opt.description ? `# ${opt.description}` : '';
+				const typeInfo = opt.type ? ` [${opt.type}]` : '';
+				const optionsInfo = opt.options ? ` Possible values: ${opt.options.join(', ')}` : '';
+				const requiredInfo = opt.required ? ' (required)' : '';
+				let defaultValue = '';
+				if (opt.default !== undefined) {
+					defaultValue = Array.isArray(opt.default) ? opt.default.join(',') : String(opt.default);
+				}
+				const example = defaultValue ? `${key}=${defaultValue}` : `${key}=`;
+				lines.push(`${desc}${typeInfo}${optionsInfo}${requiredInfo}`.trim());
+				lines.push(example);
+				lines.push('');
 			}
-			const example = defaultValue ? `${key}=${defaultValue}` : `${key}=`;
-			lines.push(`${desc}${typeInfo}${optionsInfo}${requiredInfo}`.trim());
-			lines.push(example);
-			lines.push('');
 		}
+
 		writeFileSync(file, lines.join('\n'), 'utf8');
 	}
 

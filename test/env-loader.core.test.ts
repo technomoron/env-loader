@@ -195,6 +195,102 @@ describe('EnvLoader core behavior', () => {
 		}
 	});
 
+	it('groups template output by option and block-level group metadata', () => {
+		const fixture = createEnvFixture();
+		const templatePath = join(fixture.dir, 'grouped.env');
+
+		try {
+			const serverEnvOptions = defineEnvOptions(
+				{
+					PORT: { description: 'Port number', type: 'number', default: 3000 },
+					LOG_LEVEL: { description: 'Log verbosity', options: ['info', 'debug'], default: 'info' },
+					OVERRIDE_GROUP: { description: 'Explicit override', default: 'value', group: 'CUSTOM' },
+				},
+				{ group: 'MAIN SERVER' }
+			);
+
+			const moduleEnvOptions = defineEnvOptions(
+				{
+					JWT_SECRET: { description: 'Signing secret', required: true },
+					JWT_TTL: { description: 'Seconds until expiry', type: 'number', default: 3600 },
+				},
+				{ group: 'JWT TOKEN STORE' }
+			);
+
+			const envOptions = defineEnvOptions({
+				...serverEnvOptions,
+				...moduleEnvOptions,
+			});
+
+			EnvLoader.genTemplate(envOptions, templatePath);
+
+			const contents = readFileSync(templatePath, 'utf8');
+			expect(contents).toBe(
+				[
+					'# MAIN SERVER',
+					'# Port number [number]',
+					'PORT=3000',
+					'',
+					'# Log verbosity Possible values: info, debug',
+					'LOG_LEVEL=info',
+					'',
+					'# CUSTOM',
+					'# Explicit override',
+					'OVERRIDE_GROUP=value',
+					'',
+					'# JWT TOKEN STORE',
+					'# Signing secret (required)',
+					'JWT_SECRET=',
+					'',
+					'# Seconds until expiry [number]',
+					'JWT_TTL=3600',
+					'',
+				].join('\n')
+			);
+		} finally {
+			fixture.cleanup();
+		}
+	});
+
+	it('supports generating templates from multiple envOption blocks', () => {
+		const fixture = createEnvFixture();
+		const templatePath = join(fixture.dir, 'multi-block.env');
+
+		try {
+			const serverEnvOptions = defineEnvOptions(
+				{
+					PORT: { description: 'Port number', type: 'number', default: 3000 },
+				},
+				{ group: 'MAIN SERVER' }
+			);
+
+			const moduleEnvOptions = defineEnvOptions(
+				{
+					JWT_SECRET: { description: 'Signing secret', required: true },
+				},
+				{ group: 'JWT TOKEN STORE' }
+			);
+
+			EnvLoader.genTemplateFromBlocks([serverEnvOptions, moduleEnvOptions], templatePath);
+
+			const contents = readFileSync(templatePath, 'utf8');
+			expect(contents).toBe(
+				[
+					'# MAIN SERVER',
+					'# Port number [number]',
+					'PORT=3000',
+					'',
+					'# JWT TOKEN STORE',
+					'# Signing secret (required)',
+					'JWT_SECRET=',
+					'',
+				].join('\n')
+			);
+		} finally {
+			fixture.cleanup();
+		}
+	});
+
 	it('allows subclassing to override loader internals', () => {
 		class CustomLoader extends EnvLoader {
 			protected override loadEnvFiles() {

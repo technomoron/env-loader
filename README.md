@@ -12,7 +12,7 @@ A robust, minimal-dependency utility for loading, validating, and parsing enviro
 - **Duplicate detection:** Detects duplicate keys (case-insensitive) within a single `.env` file and warns if `debug: true`.
 - **Strict mode:** Optional proxy that throws on unknown config keys.
 - **Configurable:** Debug logging, custom search paths and filenames, and more.
-- **Template generation:** Auto-generate a commented `.env` template from your schema.
+- **Template generation:** Auto-generate a commented `.env` template from your schema (with optional grouped headers).
 
 ## Installation
 
@@ -82,9 +82,9 @@ console.log(`Custom value: ${config.CUSTOM}`);
 
 ## API
 
-### `defineEnvOptions(options)`
+### `defineEnvOptions(options, meta?)`
 
-Helper for TypeScript type inference. Pass your env schema as an object.
+Helper for TypeScript type inference. Pass your env schema as an object. Optional `meta` lets you apply a group label to all options (used for template headers).
 
 ### Environment Option Properties
 
@@ -95,6 +95,7 @@ Helper for TypeScript type inference. Pass your env schema as an object.
 - `default`: Fallback if not set. (Type matches `type`)
 - `transform` (function): Custom parser, `(raw: string) => any`.
 - `zodSchema` (ZodType): Full validation/transformation via [Zod](https://zod.dev/).
+- `group` (string): Optional grouping label for template generation.
 
 ### `EnvLoader.createConfig(envOptions, options?)`
 
@@ -116,6 +117,32 @@ Generate a commented `.env` template file (with descriptions and default/example
 ```
 EnvLoader.genTemplate(envOptions, '.env.example');
 ```
+
+You can group sections by supplying `group` on options or via the optional `meta` argument to `defineEnvOptions`:
+
+```
+const serverEnv = defineEnvOptions(
+  {
+    PORT: { description: 'Port number', type: 'number', default: 3000 },
+    LOG_LEVEL: { description: 'Log level', options: ['info', 'debug'], default: 'info' },
+  },
+  { group: 'MAIN SERVER' }
+);
+
+const jwtEnv = defineEnvOptions(
+  {
+    JWT_SECRET: { description: 'Signing secret', required: true },
+    JWT_TTL: { description: 'Expiry seconds', type: 'number', default: 3600 },
+  },
+  { group: 'JWT TOKEN STORE' }
+);
+
+EnvLoader.genTemplate({ ...serverEnv, ...jwtEnv }, '.env.example');
+```
+
+Template output will include `# MAIN SERVER` and `# JWT TOKEN STORE` headers; if no `group` is provided, output matches prior behavior.
+
+You can also pass multiple blocks without spreading using `EnvLoader.genTemplateFromBlocks([serverEnv, jwtEnv], '.env.example');`.
 
 ---
 
@@ -245,7 +272,12 @@ Load multiple `.env` files (e.g. for local overrides or per-environment):
 ```
 const config = EnvLoader.createConfig(envOptions, {
   searchPaths: ['./'],
-  fileNames: ['.env', '.env.local', `.env.${process.env.NODE_ENV}`],
+  fileNames: (() => {
+    const base = ['.env', '.env.local'];
+    const env = process.env.NODE_ENV;
+    if (env) base.push(`.env.${env}`);
+    return base;
+  })(),
   merge: true,
 });
 ```
